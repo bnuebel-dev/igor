@@ -55,3 +55,8 @@ export function createGestureFilter(windowMs: Partial<Record<Gesture, number>>, 
     return prev === undefined || t - prev >= window
   }
 }
+
+/** Index of the selected entry when the event comes from a list page (the first entry arrives as undefined). */
+export function listIndexOf(event: EvenHubEvent): number | undefined {
+  return event.listEvent ? (event.listEvent.currentSelectItemIndex ?? 0) : undefined
+}

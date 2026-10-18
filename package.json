@@ -1,7 +1,7 @@
 {
   "name": "igor",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,8 @@
     "qr": "node scripts/qr.mjs"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "0.0.16"
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "@evenrealities/pretext": "^0.1.4"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "0.1.14",

@@ -9,6 +9,8 @@ export type Settings = {
   sttModel: string
   sttFormat: 'pcm' | 'wav'
   language: string
+  /** Empty = the built-in persona. */
+  persona: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -19,45 +21,75 @@ export const DEFAULT_SETTINGS: Settings = {
   // Measured on the glasses: the Whisper provider rejects headerless pcm (HTTP 400) but takes wav.
   sttFormat: 'wav',
   language: 'de',
+  persona: '',
 }
 
-const KEY = 'igor.settings'
+const SETTINGS_KEY = 'igor.settings'
+export const MEMORY_KEY = 'igor.memory'
 
-export type Store = {
-  load(): Promise<Settings>
-  save(settings: Settings): Promise<boolean>
+/** Key/value storage on the phone: the Even app's storage, or the browser's as a fallback. */
+export type Kv = {
+  get(key: string): Promise<string>
+  set(key: string, value: string): Promise<boolean>
   readonly backend: 'even' | 'browser'
 }
 
-export function createStore(bridge: EvenAppBridge | null): Store {
-  const read = async (): Promise<string> => {
-    if (bridge) return (await bridge.getLocalStorage(KEY)) ?? ''
-    try {
-      return localStorage.getItem(KEY) ?? ''
-    } catch {
-      return ''
-    }
-  }
-  const write = async (value: string): Promise<boolean> => {
-    if (bridge) return bridge.setLocalStorage(KEY, value)
-    try {
-      localStorage.setItem(KEY, value)
-      return true
-    } catch {
-      return false
-    }
-  }
+export function createKv(bridge: EvenAppBridge | null): Kv {
   return {
     backend: bridge ? 'even' : 'browser',
-    async load() {
-      const raw = await read()
-      if (!raw) return { ...DEFAULT_SETTINGS }
+    async get(key) {
+      if (bridge) return (await bridge.getLocalStorage(key)) ?? ''
       try {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) }
+        return localStorage.getItem(key) ?? ''
       } catch {
-        return { ...DEFAULT_SETTINGS }
+        return ''
       }
     },
-    save: settings => write(JSON.stringify(settings)),
+    async set(key, value) {
+      if (bridge) return bridge.setLocalStorage(key, value)
+      try {
+        localStorage.setItem(key, value)
+        return true
+      } catch {
+        return false
+      }
+    },
   }
+}
+
+export async function loadSettings(kv: Kv): Promise<Settings> {
+  const raw = await kv.get(SETTINGS_KEY)
+  if (!raw) return { ...DEFAULT_SETTINGS }
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) }
+  } catch {
+    return { ...DEFAULT_SETTINGS }
+  }
+}
+
+export const saveSettings = (kv: Kv, settings: Settings) => kv.set(SETTINGS_KEY, JSON.stringify(settings))
+
+/**
+ * Debounces writes: the storage shares the Bluetooth link with the display, so
+ * a burst of changes should become one write. `flush()` writes immediately.
+ */
+export function debouncedSave(write: (json: string) => unknown, delayMs = 600) {
+  let pending: string | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const flush = () => {
+    if (timer) clearTimeout(timer)
+    timer = null
+    if (pending !== null) {
+      const json = pending
+      pending = null
+      void write(json)
+    }
+  }
+  return Object.assign(
+    (json: string) => {
+      pending = json
+      if (!timer) timer = setTimeout(flush, delayMs)
+    },
+    { flush },
+  )
 }

@@ -2,36 +2,49 @@
 
 **I**ntelligenter **G**ehilfe **O**hne **R**uhepause: ein KI-Assistent für die Datenbrille Even Realities G2. Man spricht, IGOR antwortet auf der Brille und nennt einen dabei immer „Boss“. Die Modelle kommen von [OpenRouter](https://openrouter.ai), man bringt seinen eigenen Schlüssel mit.
 
-Stand: **Phase 0 (Diagnose)**. Die App prüft, ob OpenRouter aus der Even-App heraus funktioniert, und enthält bereits den ganzen Sprachablauf.
+Stand: **Version 0.2**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, und hat ein Gedächtnis mit Notizen und Themen.
 
-## Auf der Brille testen
+## Bedienung an der Brille
 
-1. Even-App auf dem Handy öffnen, Entwicklermodus aktivieren (laut Community: im About-Bildschirm siebenmal auf die Versionsnummer tippen).
-2. Diesen QR-Code mit dem Scanner der Even-App scannen. Er enthält `https://bnuebel-dev.github.io/igor/`.
+| Wo | Geste | Wirkung |
+|---|---|---|
+| Startseite | Tippen | sprechen, nochmals tippen: senden |
+| Startseite | Gedrückt halten | sprechen, loslassen: senden |
+| Startseite | Wisch runter | Menü |
+| Startseite | Doppeltippen | Beenden-Dialog |
+| Aufnahme | Doppeltippen | abbrechen |
+| Antwort | Wisch runter / hoch | nächste / vorige Seite |
+| Antwort | Tippen | neue Frage |
+| Antwort | Doppeltippen | zurück zur Startseite |
+| Merk-Vorschlag | Tippen / Doppeltippen | ja / nein |
+| Menü | Tippen | Eintrag wählen |
+
+Menü: Neuer Chat, Thema wählen, Modell wählen (die zehn Favoriten), Notizen ansehen, Beenden.
+
+## Gedächtnis
+
+- **Gespräch:** Die letzten Fragen und Antworten gehen mit. „Neuer Chat“ beginnt leer.
+- **Notizen:** Sagen Sie „Merk dir: Mein Hund heißt Rex“. IGOR speichert es sofort. Er kann auch selbst vorschlagen („Merken, Boss?“), Tippen bestätigt.
+- **Themen:** „Thema Garten“ legt ein Thema an oder wählt es. Jedes Thema hat eigene Notizen, einen Verlauf und eine laufende Zusammenfassung, die IGOR nach drei Fragen und beim Verlassen erneuert. „Kein Thema“ geht zurück zum allgemeinen Chat.
+- **Handy-Seite:** Reiter „Gedächtnis“ zeigt alles, zum Ändern und Löschen, mit Sicherung als Text.
+- **Datenschutz:** Das Gedächtnis liegt im Speicher der Even-App auf dem Handy. Notizen und Zusammenfassungen gehen mit jeder Anfrage an OpenRouter und das gewählte Modell.
+
+## Ohne Brille
+
+Die Handy-Seite hat eine „Brillen-Anzeige“ mit Tasten für Tippen, Wischen und Halten. Damit lässt sich IGOR im Browser bedienen, auch mit dem Browser-Mikrofon.
+
+## Auf der Brille starten
+
+1. Am Rechner unter https://hub.evenrealities.com/login mit dem Konto der Even-App anmelden (schaltet den Entwicklerbereich frei), die Even-App neu starten.
+2. In der Even-App: **Even Hub** → Symbol oben rechts → **Entwickler-Hub** → **Prototyp-Modus** → **QR-Code scannen**.
+3. Diesen QR-Code scannen. Er enthält `https://bnuebel-dev.github.io/igor/`.
 
    ![QR-Code](docs/qr.png)
 
-3. Auf dem Handy erscheint die Diagnoseseite, auf der Brille „Zu Diensten, Boss.“
-4. OpenRouter-Schlüssel eintragen und **Speichern**. Der Schlüssel bleibt im Speicher der Even-App auf dem Handy.
-5. **Tests 1 bis 4 nacheinander** antippen.
-6. An der Brille tippen, eine Frage sprechen, erneut tippen. Alternativ lange drücken, sprechen, loslassen.
-7. **Protokoll kopieren** und das Ergebnis zurückmelden.
+4. Auf dem Handy unter **Einstellungen** den OpenRouter-Schlüssel einfügen und **Speichern**.
+5. Auf der Brille tippen und sprechen.
 
-| Test | Prüft |
-|---|---|
-| 1 Verbindung | Ist `openrouter.ai` aus der WebView erreichbar (CORS)? |
-| 2 Schlüssel | Ist der Schlüssel gültig? |
-| 3 Chat | Antwort am Stück, mit Dauer und Kosten |
-| 4 Chat-Stream | Kommt die Antwort gestreamt an? Zeit bis zum ersten Wort |
-| 5 Sprache | Brillenmikrofon, Spracherkennung (`pcm` oder `wav`), Antwort auf der Brille |
-
-## Bedienung auf der Brille
-
-| Geste | Wirkung |
-|---|---|
-| Tippen | Aufnahme starten, nochmals tippen: senden |
-| Lange drücken, loslassen | Sprechen, solange gedrückt |
-| Doppeltippen | Während der Aufnahme: abbrechen. Sonst: Beenden-Dialog |
+Der Reiter **Diagnose** enthält die Verbindungstests und das Protokoll (**Protokoll kopieren**), falls etwas nicht klappt.
 
 ## Entwickeln
 
@@ -56,11 +69,17 @@ Bei jedem Push auf `main` baut GitHub Actions die App, prüft sie, erzeugt `igor
 
 | Datei | Aufgabe |
 |---|---|
-| `src/main.ts` | Start, Diagnose-Tests, Sprachablauf und Gesten |
+| `src/main.ts` | Verdrahtung: Brille, Handy-Seite, Speicher, Dienste |
+| `src/assistant.ts` | Zustandsautomat der Brille: Gesten, Aufnahme, Antworten, Menü, Merk-Vorschläge |
+| `src/memory.ts` | Notizen, Themen, Zusammenfassungen, Speicherung |
+| `src/prompt.ts` | Aufbau der Anfrage aus Persona, Gedächtnis und Verlauf |
+| `src/pager.ts` | Seitenteilung mit der Schrift der Brille (`@evenrealities/pretext`) |
+| `src/marker.ts` | Merk-Vorschläge des Modells und gesprochene Befehle |
+| `src/phone.ts` | Handy-Seite mit Start, Gedächtnis, Einstellungen, Diagnose |
 | `src/glasses.ts` | Alle Brillen-Aufrufe seriell mit Zeitlimit, Text-Updates zusammengefasst |
 | `src/catalog.ts` | Kuratierte Top-10-Listen für Chat und Spracherkennung: kurze Namen mit Eigenschaft in Klammern, jeweils die neueste Version aus der echten Modellliste |
 | `src/openrouter.ts` | Modelle, Schlüssel, Chat (mit Streaming), Spracherkennung |
 | `src/events.ts` | Gesten aus SDK-Ereignissen, Duplikatfilter |
 | `src/pcm.ts` | Mikrofonpuffer, WAV-Kopf, Base64 |
 | `src/text.ts` | Klartext für die Brille, Byte-Limit pro Container |
-| `src/persona.ts` | Systemprompt: IGOR nennt dich Boss |
+| `src/persona.ts` | Standard-Persona: IGOR siezt und nennt Sie „Boss“ |

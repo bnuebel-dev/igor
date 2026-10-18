@@ -26,12 +26,19 @@ async function readBody(req) {
   return raw ? JSON.parse(raw) : {}
 }
 
+// Test control: POST /__say {"text": "..."} sets what the next speech recognition returns.
+let nextSpeech = 'Wie spät ist es auf dem Mars, Igor?'
+
 const authorized = req => (req.headers.authorization ?? '').startsWith('Bearer sk-or-')
 
 createServer(async (req, res) => {
   const url = new URL(req.url, `http://localhost:${port}`)
   const path = url.pathname.replace(/^\/api\/v1/, '')
   if (req.method === 'OPTIONS') return res.writeHead(204, cors).end()
+  if (url.pathname === '/__say') {
+    nextSpeech = String((await readBody(req)).text ?? nextSpeech)
+    return json(res, 200, { ok: true, nextSpeech })
+  }
 
   if (path === '/models') {
     if (url.searchParams.get('output_modalities') === 'transcription') {
@@ -71,24 +78,30 @@ createServer(async (req, res) => {
     const body = await readBody(req)
     const bytes = Buffer.from(body.input_audio?.data ?? '', 'base64').length
     console.log(`transcription: ${body.model} format=${body.input_audio?.format} ${bytes} bytes lang=${body.language}`)
-    return json(res, 200, { text: 'Wie spät ist es auf dem Mars, Igor?', usage: { cost: 0.0002 } })
+    return json(res, 200, { text: nextSpeech, usage: { cost: 0.0002 } })
   }
 
   if (path === '/chat/completions') {
     const body = await readBody(req)
-    console.log(`chat: ${body.model} stream=${body.stream} "${body.messages?.at(-1)?.content}"`)
+    const last = String(body.messages?.at(-1)?.content ?? '')
+    const system = String(body.messages?.[0]?.content ?? '')
+    console.log(`chat: ${body.model} stream=${body.stream} reasoning=${JSON.stringify(body.reasoning)} turns=${body.messages?.length} "${last.slice(0, 60).replace(/\n/g, ' ')}"`)
+    // Answer depends on the question so the app's features can be exercised without a real model.
+    let answer = ANSWER
+    if (system.startsWith('Sie führen das Gedächtnis')) answer = 'Garten: Beet im Süden angelegt, Tomaten folgen im Mai.'
+    else if (/hund/i.test(last)) answer = 'Ein Hund, Boss, wie wunderbar! Rex ist ein schöner Name.\n\n[[MERKEN: Hund heißt Rex]]'
+    else if (/lang|ausführlich/i.test(last)) answer = Array.from({ length: 14 }, (_, i) => `Absatz ${i + 1}: Der Mars hat keine eigene Zeitzone, aber ein Marstag dauert 24 Stunden und 39 Minuten, Boss.`).join('\n\n')
     const usage = { prompt_tokens: 120, completion_tokens: 60, cost: 0.00012 }
     if (!body.stream) {
-      return json(res, 200, { choices: [{ message: { role: 'assistant', content: ANSWER } }], usage })
+      return json(res, 200, { choices: [{ message: { role: 'assistant', content: answer }, finish_reason: 'stop' }], usage })
     }
     res.writeHead(200, { ...cors, 'Content-Type': 'text/event-stream' })
     res.write(': OPENROUTER PROCESSING\n\n')
-    const words = ANSWER.split(/(?<= )/)
-    for (const w of words) {
-      await new Promise(r => setTimeout(r, 60))
+    for (const w of answer.split(/(?<= )/)) {
+      await new Promise(r => setTimeout(r, 15))
       res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: w } }] })}\n\n`)
     }
-    res.write(`data: ${JSON.stringify({ choices: [{ delta: {} , finish_reason: 'stop' }], usage })}\n\n`)
+    res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }], usage })}\n\n`)
     res.write('data: [DONE]\n\n')
     return res.end()
   }
