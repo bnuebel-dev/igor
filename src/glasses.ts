@@ -78,8 +78,13 @@ export class Glasses {
       ),
     )
     if (result !== StartUpPageCreateResult.success) {
-      this.log(`Seite anlegen: Ergebnis ${result}`)
-      return false
+      this.log(`Seite anlegen: Ergebnis ${result}; versuche stattdessen die vorhandene Seite zu ersetzen`)
+      // A page from an earlier run may still be on the glasses; replacing it works where creating is refused.
+      const rebuilt = await this.enqueue('Seite ersetzen', () =>
+        this.bridge.rebuildPageContainer(new RebuildPageContainer({ containerTotalNum: 1, textObject: [textContainer(text)] })),
+      ).catch(() => false)
+      if (!rebuilt) this.log('Seite ersetzen: abgelehnt')
+      return rebuilt
     }
     return true
   }
