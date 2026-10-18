@@ -1,3 +1,4 @@
+import { withTimeout } from './timeout.ts'
 import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 
 // Only the SDK storage survives restarts inside the Even app; browser
@@ -38,7 +39,13 @@ export function createKv(bridge: EvenAppBridge | null): Kv {
   return {
     backend: bridge ? 'even' : 'browser',
     async get(key) {
-      if (bridge) return (await bridge.getLocalStorage(key)) ?? ''
+      if (bridge) {
+        try {
+          return (await withTimeout(bridge.getLocalStorage(key), 4000, 'Speicher lesen')) ?? ''
+        } catch {
+          return ''
+        }
+      }
       try {
         return localStorage.getItem(key) ?? ''
       } catch {
@@ -46,7 +53,13 @@ export function createKv(bridge: EvenAppBridge | null): Kv {
       }
     },
     async set(key, value) {
-      if (bridge) return bridge.setLocalStorage(key, value)
+      if (bridge) {
+        try {
+          return await withTimeout(bridge.setLocalStorage(key, value), 4000, 'Speicher schreiben')
+        } catch {
+          return false
+        }
+      }
       try {
         localStorage.setItem(key, value)
         return true

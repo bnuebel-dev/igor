@@ -31,6 +31,10 @@ phone.setChatChoices(resolveChoices(CHAT_SPECS, []), DEFAULT_SETTINGS.chatModel)
 phone.setSttChoices(resolveChoices(STT_SPECS, []), DEFAULT_SETTINGS.sttModel)
 
 const bridge = await connectBridge()
+
+// The glasses page comes first: nothing else may delay it, and the first call is the only one that counts.
+const glasses = bridge ? new Glasses(bridge, msg => phone.log('fail', msg)) : null
+const glassesStarted = glasses ? await glasses.start('IGOR startet …') : false
 const kv = createKv(bridge)
 let settings: Settings = await loadSettings(kv)
 phone.writeSettings(settings)
@@ -79,7 +83,6 @@ window.addEventListener('pagehide', () => saver.flush())
 
 // ---- Glasses (real, or virtual on the phone page) --------------------------------------------
 
-const glasses = bridge ? new Glasses(bridge, msg => phone.log('fail', msg)) : null
 let virtualRec: BrowserRecording | null = null
 let exitRequested = false
 
@@ -184,7 +187,7 @@ function updateInfo() {
 // ---- Startup ----------------------------------------------------------------------------------
 
 if (glasses) {
-  const ok = await glasses.start('IGOR startet …')
+  const ok = glassesStarted
   phone.setStatus(ok ? 'Brille verbunden' : 'Brille: Seite fehlt', ok ? 'ok' : 'fail')
   const device = await bridge!.getDeviceInfo().catch(() => null)
   if (device) phone.log('info', `Gerät: ${device.model}, Akku ${device.status?.batteryLevel ?? '?'} %`)
