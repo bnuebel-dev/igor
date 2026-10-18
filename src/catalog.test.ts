@@ -81,6 +81,45 @@ describe('resolveChoices (fallbacks and speech)', () => {
   })
 })
 
+describe('resolveChoices (real speech catalog from OpenRouter, 18.10.2026)', () => {
+  const ids = [
+    'assemblyai/universal-3-6-pro', 'elevenlabs/scribe-v2', 'elevenlabs/scribe-v2-medical', 'google/gemini-3.5-transcribe',
+    'fish-audio/transcribe-1-pro', 'assemblyai/universal-3-5-pro', 'meta/muse-voice-transcribe-1.0', 'microsoft/mai-transcribe-2',
+    'nvidia/nemotron-3.5-asr-streaming-multilingual-0.6b', 'mistralai/voxtral-small-24b-2507-stt', 'mistralai/voxtral-mini-3b-2507',
+    'qwen/qwen3-asr-1.7b', 'qwen/qwen3-asr-0.6b', 'openai/gpt-transcribe', 'fish-audio/transcribe-1', 'x-ai/grok-stt-1.0',
+    'deepgram/nova-3', 'microsoft/mai-transcribe-1.5', 'nvidia/parakeet-tdt-0.6b-v3', 'mistralai/voxtral-mini-transcribe',
+    'google/chirp-3', 'openai/gpt-4o-mini-transcribe', 'openai/whisper-large-v3', 'openai/whisper-large-v3-turbo',
+    'openai/whisper-1', 'openai/gpt-4o-transcribe',
+  ]
+  // The newer generation of a family must win; everything else gets an arbitrary older date.
+  const newer = new Set(['assemblyai/universal-3-6-pro', 'openai/gpt-transcribe'])
+  const stt = ids.map((id, i) => m(id, newer.has(id) ? 9000 : 1000 + i))
+  const out = resolveChoices(STT_SPECS, stt, { fillRest: true })
+
+  it('offers ten entries, one model per family', () => {
+    expect(out.map(c => c.text)).toEqual([
+      'Whisper Turbo (schnell)',
+      'GPT Transcribe (genau)',
+      'GPT Transcribe Mini (günstig)',
+      'Deepgram Nova (schnell)',
+      'ElevenLabs Scribe (genau)',
+      'AssemblyAI (genau)',
+      'Gemini Transcribe (Google)',
+      'Voxtral (EU, günstig)',
+      'Whisper Large (bewährt)',
+      'Whisper (Standard)',
+    ])
+  })
+
+  it('maps to the intended models, not to variants', () => {
+    const id = (label: string) => out.find(c => c.label === label)?.id
+    expect(id('GPT Transcribe')).toBe('openai/gpt-transcribe') // newer than gpt-4o-transcribe
+    expect(id('ElevenLabs Scribe')).toBe('elevenlabs/scribe-v2') // not the medical variant
+    expect(id('AssemblyAI')).toBe('assemblyai/universal-3-6-pro')
+    expect(id('Voxtral')).toBe('mistralai/voxtral-mini-transcribe') // not the chat-style small model
+  })
+})
+
 describe('helpers', () => {
   it('builds a readable short name from an id', () => {
     expect(shortName('google/gemini-2.5-flash')).toBe('Gemini 2.5 Flash')

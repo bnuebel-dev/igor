@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { OsEventTypeList, type EvenHubEvent } from '@evenrealities/even_hub_sdk'
 import { clampUtf8, sanitizeForGlasses, utf8Length } from './text.ts'
-import { PcmRecorder, pcmToWav, peakLevel, toBase64 } from './pcm.ts'
+import { PcmRecorder, floatToPcm16, pcmToWav, peakLevel, toBase64 } from './pcm.ts'
 import { SseParser } from './sse.ts'
 import { createGestureFilter, gestureOf } from './events.ts'
 
@@ -50,6 +50,13 @@ describe('pcm', () => {
     const bytes = new Uint8Array(100_000).map((_, i) => i % 256)
     const decoded = Uint8Array.from(atob(toBase64(bytes)), c => c.charCodeAt(0))
     expect(decoded).toEqual(bytes)
+  })
+
+  it('converts float samples to s16le and clamps', () => {
+    const pcm = floatToPcm16(new Float32Array([0, 1, -1, 0.5, 2, -2]))
+    const v = new DataView(pcm.buffer)
+    const got = [0, 1, 2, 3, 4, 5].map(i => v.getInt16(i * 2, true))
+    expect(got).toEqual([0, 32767, -32768, 16384, 32767, -32768])
   })
 
   it('measures peak level', () => {

@@ -1,7 +1,7 @@
 import type { Settings } from './storage.ts'
 import { CUSTOM, withSelected, type Choice } from './catalog.ts'
 
-export type Action = 'save' | 'cors' | 'key' | 'chat-plain' | 'chat-stream' | 'all' | 'ask' | 'copy'
+export type Action = 'save' | 'mic' | 'cors' | 'key' | 'chat-plain' | 'chat-stream' | 'all' | 'ask' | 'copy'
 
 type Level = 'info' | 'ok' | 'fail'
 
@@ -74,7 +74,8 @@ export function mountUi(onAction: (action: Action) => void) {
           <button data-action="chat-stream">4 Chat-Stream</button>
         </div>
         <button data-action="all" class="primary">Tests 1 bis 4 nacheinander</button>
-        <p class="hint">Test 5, Sprache: an der Brille tippen, sprechen, erneut tippen. Oder lange drücken, sprechen, loslassen.</p>
+        <button data-action="mic">5 Sprache: 4 s mit Browser-Mikrofon</button>
+        <p class="hint">Test 5 prüft Spracherkennung und Audioformat ohne Brille. An der Brille: tippen, sprechen, erneut tippen, oder lange drücken, sprechen, loslassen.</p>
       </section>
 
       <section>

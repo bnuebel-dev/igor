@@ -43,14 +43,15 @@ export const CHAT_SPECS: Spec[] = [
 
 export const STT_SPECS: Spec[] = [
   { label: 'Whisper Turbo', tag: 'schnell', match: /whisper-large-v3-turbo/, fallback: 'openai/whisper-large-v3-turbo' },
-  { label: 'Whisper Large', tag: 'genau', match: /whisper-large-v3$/, fallback: 'openai/whisper-large-v3' },
+  { label: 'GPT Transcribe', tag: 'genau', match: /^openai\/gpt-(4o-)?transcribe$/ },
+  { label: 'GPT Transcribe Mini', tag: 'günstig', match: /^openai\/gpt-(4o-)?mini-transcribe/ },
+  { label: 'Deepgram Nova', tag: 'schnell', match: /^deepgram\/nova/ },
+  { label: 'ElevenLabs Scribe', tag: 'genau', match: /^elevenlabs\/scribe-v[\d.]+$/ },
+  { label: 'AssemblyAI', tag: 'genau', match: /^assemblyai\/universal-[\d-]+-pro$/ },
+  { label: 'Gemini Transcribe', tag: 'Google', match: /^google\/gemini-[\d.]+-transcribe$/ },
+  { label: 'Voxtral', tag: 'EU, günstig', match: /^mistralai\/voxtral-mini-transcribe/ },
+  { label: 'Whisper Large', tag: 'bewährt', match: /whisper-large-v3$/, fallback: 'openai/whisper-large-v3' },
   { label: 'Whisper', tag: 'Standard', match: /whisper-1$/, fallback: 'openai/whisper-1' },
-  { label: 'GPT Transcribe', tag: 'genau', match: /gpt-4o-transcribe$/ },
-  { label: 'GPT Transcribe Mini', tag: 'günstig', match: /gpt-4o-mini-transcribe/ },
-  { label: 'Deepgram Nova', tag: 'schnell', match: /deepgram\/nova/ },
-  { label: 'ElevenLabs Scribe', tag: 'genau', match: /elevenlabs\/scribe/ },
-  { label: 'Voxtral', tag: 'EU', match: /voxtral/ },
-  { label: 'AssemblyAI', tag: 'Untertitel', match: /assemblyai/ },
 ]
 
 // Variants that are not plain chat models, or that need extra setup.

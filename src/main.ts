@@ -12,7 +12,8 @@ import {
   type ModelInfo,
   type Usage,
 } from './openrouter.ts'
-import { CHAT_SPECS, resolveChoices, STT_SPECS } from './catalog.ts'
+import { CHAT_SPECS, resolveChoices, STT_SPECS, type Choice } from './catalog.ts'
+import { recordBrowserPcm } from './browserMic.ts'
 import { PcmRecorder } from './pcm.ts'
 import { GREETING, PERSONA } from './persona.ts'
 import { createStore, DEFAULT_SETTINGS, type Settings } from './storage.ts'
@@ -36,14 +37,18 @@ ui.write(settings)
 // A model counts as chosen once the user has saved it; until then the first curated entry applies.
 const pinned = { chat: settings.chatModel !== '', stt: settings.sttModel !== '' }
 
-function showChat(models: ModelInfo[]) {
-  ui.setChatChoices(resolveChoices(CHAT_SPECS, models), pinned.chat ? settings.chatModel : '')
+function showChat(models: ModelInfo[]): Choice[] {
+  const choices = resolveChoices(CHAT_SPECS, models)
+  ui.setChatChoices(choices, pinned.chat ? settings.chatModel : '')
   if (!pinned.chat) settings.chatModel = ui.read().chatModel
+  return choices
 }
 
-function showStt(models: ModelInfo[]) {
-  ui.setSttChoices(resolveChoices(STT_SPECS, models, { fillRest: true }), pinned.stt ? settings.sttModel : '')
+function showStt(models: ModelInfo[]): Choice[] {
+  const choices = resolveChoices(STT_SPECS, models, { fillRest: true })
+  ui.setSttChoices(choices, pinned.stt ? settings.sttModel : '')
   if (!pinned.stt) settings.sttModel = ui.read().sttModel
+  return choices
 }
 
 // Until the live catalog arrives (or if it cannot be loaded) show the built-in picks.
@@ -80,7 +85,8 @@ async function connectBridge(): Promise<EvenAppBridge | null> {
 async function loadModelLists() {
   try {
     const models = await listModels()
-    showChat(models)
+    const picks = showChat(models)
+    ui.log('info', `Chat-Auswahl: ${picks.map(c => `${c.label}=${c.id}`).join(', ')}`)
     const audio = models.filter(m => m.inputModalities.includes('audio')).length
     ui.log('info', `${models.length} Chat-Modelle geladen, davon ${audio} mit Audio-Eingang`)
   } catch (err) {
@@ -88,8 +94,9 @@ async function loadModelLists() {
   }
   try {
     const stt = await listTranscriptionModels()
-    showStt(stt)
-    ui.log('info', `Spracherkennung: ${stt.length} Modelle gemeldet: ${stt.map(m => m.id).join(', ') || 'keine'}`)
+    const picks = showStt(stt)
+    ui.log('info', `Sprach-Auswahl: ${picks.map(c => `${c.label}=${c.id}`).join(', ')}`)
+    ui.log('info', `Spracherkennung: ${stt.length} Modelle gemeldet`)
   } catch (err) {
     ui.log('fail', `Liste Spracherkennung: ${describe(err)}`)
   }
@@ -156,6 +163,17 @@ function persona(question: string): ChatMessage[] {
   ]
 }
 
+async function testBrowserMic() {
+  const key = needKey()
+  if (!key) return
+  ui.log('info', 'Bitte jetzt sprechen, Aufnahme läuft 4 Sekunden …')
+  const pcm = await recordBrowserPcm(4, () => ui.setStatus('Aufnahme läuft …', 'warn'))
+  ui.setStatus(glasses ? 'Brille verbunden' : 'Nur Browser, keine Brille', glasses ? 'ok' : 'warn')
+  ui.log('info', `Aufnahme: ${(pcm.length / 32000).toFixed(1)} s, ${pcm.length} Bytes (16 kHz, mono)`)
+  const stt = await transcribe(key, settings.sttModel, pcm, { format: settings.sttFormat, language: settings.language || undefined })
+  ui.log('ok', `5 Spracherkennung ${settings.sttModel} (${settings.sttFormat}): ${ms(stt.totalMs)}, "${stt.text}"`)
+}
+
 let busy = false
 
 async function handle(action: Action) {
@@ -190,6 +208,8 @@ async function handle(action: Action) {
           ui.log('fail', `${name}: ${describe(err)}`)
         }
       }
+    } else if (action === 'mic') {
+      await testBrowserMic()
     } else if (action === 'ask') {
       const q = ui.question()
       if (q) await answer(q)

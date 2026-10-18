@@ -86,3 +86,14 @@ export function peakLevel(chunk: Uint8Array): number {
   }
   return peak / 32768
 }
+
+/** Float samples (-1..1) to little-endian signed 16-bit PCM. */
+export function floatToPcm16(samples: Float32Array): Uint8Array {
+  const out = new Uint8Array(samples.length * 2)
+  const v = new DataView(out.buffer)
+  for (let i = 0; i < samples.length; i++) {
+    const x = Math.max(-1, Math.min(1, samples[i]!))
+    v.setInt16(i * 2, x < 0 ? Math.round(x * 32768) : Math.round(x * 32767), true)
+  }
+  return out
+}
