@@ -13,6 +13,8 @@ export type ModelInfo = {
   outputModalities: string[]
   promptPrice?: string
   completionPrice?: string
+  /** Unix seconds; used to find the newest version of a model family. */
+  created?: number
 }
 
 export type Usage = { prompt_tokens?: number; completion_tokens?: number; cost?: number }
@@ -75,6 +77,7 @@ function toModel(raw: any): ModelInfo {
     outputModalities: raw.architecture?.output_modalities ?? [],
     promptPrice: raw.pricing?.prompt,
     completionPrice: raw.pricing?.completion,
+    created: typeof raw.created === 'number' ? raw.created : undefined,
   }
 }
 

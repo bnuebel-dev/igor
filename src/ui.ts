@@ -1,5 +1,5 @@
 import type { Settings } from './storage.ts'
-import type { ModelInfo } from './openrouter.ts'
+import { CUSTOM, withSelected, type Choice } from './catalog.ts'
 
 export type Action = 'save' | 'cors' | 'key' | 'chat-plain' | 'chat-stream' | 'all' | 'ask' | 'copy'
 
@@ -9,6 +9,34 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+}
+
+
+type Picker = 'chatModel' | 'sttModel'
+
+function fillPicker(which: Picker, choices: Choice[], selected: string) {
+  const list = withSelected(choices, selected)
+  const select = $<HTMLSelectElement>(which)
+  select.innerHTML =
+    list.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.text)}</option>`).join('') +
+    `<option value="${CUSTOM}">Andere …</option>`
+  select.value = list.some(c => c.id === selected) ? selected : list[0]?.id ?? CUSTOM
+  select.dataset.info = JSON.stringify(Object.fromEntries(list.map(c => [c.id, c.price ?? ''])))
+  syncPicker(which)
+}
+
+function syncPicker(which: Picker) {
+  const select = $<HTMLSelectElement>(which)
+  const custom = $<HTMLInputElement>(`${which}Custom`)
+  const customOn = select.value === CUSTOM
+  custom.hidden = !customOn
+  const prices: Record<string, string> = JSON.parse(select.dataset.info ?? '{}')
+  $(`${which}Info`).textContent = customOn ? '' : [select.value, prices[select.value]].filter(Boolean).join(' · ')
+}
+
+function pickedId(which: Picker): string {
+  const select = $<HTMLSelectElement>(which)
+  return select.value === CUSTOM ? $<HTMLInputElement>(`${which}Custom`).value.trim() : select.value
 }
 
 export function mountUi(onAction: (action: Action) => void) {
@@ -24,9 +52,12 @@ export function mountUi(onAction: (action: Action) => void) {
       <section>
         <h2>OpenRouter</h2>
         <label>API-Schlüssel<input id="apiKey" type="password" autocomplete="off" placeholder="sk-or-…"></label>
-        <label>Chat-Modell<input id="chatModel" list="chatModels" autocomplete="off"></label>
-        <datalist id="chatModels"></datalist>
+        <label>Chat-Modell<select id="chatModel"></select></label>
+        <input id="chatModelCustom" class="custom" placeholder="Modell-ID, z. B. vendor/modell" autocomplete="off" hidden>
+        <p id="chatModelInfo" class="info"></p>
         <label>Spracherkennung<select id="sttModel"></select></label>
+        <input id="sttModelCustom" class="custom" placeholder="Modell-ID" autocomplete="off" hidden>
+        <p id="sttModelInfo" class="info"></p>
         <div class="row">
           <label>Audioformat<select id="sttFormat"><option value="pcm">pcm (roh)</option><option value="wav">wav</option></select></label>
           <label>Sprache<input id="language" maxlength="5"></label>
@@ -59,6 +90,10 @@ export function mountUi(onAction: (action: Action) => void) {
       </section>
     </main>`
   injectStyles()
+  app.addEventListener('change', e => {
+    const id = (e.target as HTMLElement).id
+    if (id === 'chatModel' || id === 'sttModel') syncPicker(id)
+  })
   app.addEventListener('click', e => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-action]')
     if (btn) onAction(btn.dataset.action as Action)
@@ -85,30 +120,19 @@ export function mountUi(onAction: (action: Action) => void) {
     read(): Settings {
       return {
         apiKey: $<HTMLInputElement>('apiKey').value.trim(),
-        chatModel: $<HTMLInputElement>('chatModel').value.trim(),
-        sttModel: $<HTMLSelectElement>('sttModel').value,
+        chatModel: pickedId('chatModel'),
+        sttModel: pickedId('sttModel'),
         sttFormat: $<HTMLSelectElement>('sttFormat').value as Settings['sttFormat'],
         language: $<HTMLInputElement>('language').value.trim(),
       }
     },
     write(s: Settings) {
       $<HTMLInputElement>('apiKey').value = s.apiKey
-      $<HTMLInputElement>('chatModel').value = s.chatModel
       $<HTMLSelectElement>('sttFormat').value = s.sttFormat
       $<HTMLInputElement>('language').value = s.language
-      this.setSttModels([], s.sttModel)
     },
-    setChatModels(models: ModelInfo[]) {
-      $('chatModels').innerHTML = models
-        .map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}${m.inputModalities.includes('audio') ? ' (Audio)' : ''}</option>`)
-        .join('')
-    },
-    setSttModels(models: ModelInfo[], selected: string) {
-      const ids = [...new Set([selected, ...models.map(m => m.id)].filter(Boolean))]
-      $('sttModel').innerHTML = ids
-        .map(id => `<option value="${escapeHtml(id)}"${id === selected ? ' selected' : ''}>${escapeHtml(id)}</option>`)
-        .join('')
-    },
+    setChatChoices: (choices: Choice[], selected: string) => fillPicker('chatModel', choices, selected),
+    setSttChoices: (choices: Choice[], selected: string) => fillPicker('sttModel', choices, selected),
     question: () => $<HTMLTextAreaElement>('question').value.trim(),
     setBusy(busy: boolean) {
       document.querySelectorAll<HTMLButtonElement>('button[data-action]').forEach(b => {
@@ -138,6 +162,9 @@ function injectStyles() {
     input, select, textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px;
       background: rgba(255,255,255,0.08); color: #fff; border: 0; border-radius: 10px;
       padding: 10px 12px; font: inherit; }
+    [hidden] { display: none !important; }
+    .info { margin: -6px 0 12px; font-size: 12px; color: #6a6a6a; overflow-wrap: anywhere; }
+    .custom { margin: -4px 0 8px; }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
     button { width: 100%; padding: 12px; border: 0; border-radius: 12px; font: inherit; font-weight: 500;

@@ -9,11 +9,13 @@ import {
   OpenRouterError,
   transcribe,
   type ChatMessage,
+  type ModelInfo,
   type Usage,
 } from './openrouter.ts'
+import { CHAT_SPECS, resolveChoices, STT_SPECS } from './catalog.ts'
 import { PcmRecorder } from './pcm.ts'
 import { GREETING, PERSONA } from './persona.ts'
-import { createStore, type Settings } from './storage.ts'
+import { createStore, DEFAULT_SETTINGS, type Settings } from './storage.ts'
 import { withTimeout } from './timeout.ts'
 import { mountUi, type Action } from './ui.ts'
 
@@ -22,11 +24,31 @@ const MAX_RECORD_SECONDS = 30
 
 const ui = mountUi(action => void handle(action))
 ui.log('info', `IGOR 0.0.1 · ${navigator.userAgent}`)
+// Fill the pickers right away; waiting for the bridge can take a couple of seconds.
+ui.setChatChoices(resolveChoices(CHAT_SPECS, []), DEFAULT_SETTINGS.chatModel)
+ui.setSttChoices(resolveChoices(STT_SPECS, []), DEFAULT_SETTINGS.sttModel)
 
 const bridge = await connectBridge()
 const store = createStore(bridge)
 let settings: Settings = await store.load()
 ui.write(settings)
+
+// A model counts as chosen once the user has saved it; until then the first curated entry applies.
+const pinned = { chat: settings.chatModel !== '', stt: settings.sttModel !== '' }
+
+function showChat(models: ModelInfo[]) {
+  ui.setChatChoices(resolveChoices(CHAT_SPECS, models), pinned.chat ? settings.chatModel : '')
+  if (!pinned.chat) settings.chatModel = ui.read().chatModel
+}
+
+function showStt(models: ModelInfo[]) {
+  ui.setSttChoices(resolveChoices(STT_SPECS, models, { fillRest: true }), pinned.stt ? settings.sttModel : '')
+  if (!pinned.stt) settings.sttModel = ui.read().sttModel
+}
+
+// Until the live catalog arrives (or if it cannot be loaded) show the built-in picks.
+showChat([])
+showStt([])
 
 const glasses = bridge ? new Glasses(bridge, msg => ui.log('fail', msg)) : null
 if (glasses) {
@@ -58,7 +80,7 @@ async function connectBridge(): Promise<EvenAppBridge | null> {
 async function loadModelLists() {
   try {
     const models = await listModels()
-    ui.setChatModels(models)
+    showChat(models)
     const audio = models.filter(m => m.inputModalities.includes('audio')).length
     ui.log('info', `${models.length} Chat-Modelle geladen, davon ${audio} mit Audio-Eingang`)
   } catch (err) {
@@ -66,8 +88,8 @@ async function loadModelLists() {
   }
   try {
     const stt = await listTranscriptionModels()
-    ui.setSttModels(stt, settings.sttModel)
-    ui.log('info', `Spracherkennung: ${stt.map(m => m.id).join(', ') || 'keine Modelle gemeldet'}`)
+    showStt(stt)
+    ui.log('info', `Spracherkennung: ${stt.length} Modelle gemeldet: ${stt.map(m => m.id).join(', ') || 'keine'}`)
   } catch (err) {
     ui.log('fail', `Liste Spracherkennung: ${describe(err)}`)
   }
@@ -151,7 +173,13 @@ async function handle(action: Action) {
   ui.setBusy(true)
   try {
     if (action === 'save') {
-      settings = ui.read()
+      const next = ui.read()
+      if (!next.chatModel || !next.sttModel) {
+        ui.log('fail', 'Bei „Andere …“ fehlt die Modell-ID')
+        return
+      }
+      settings = next
+      pinned.chat = pinned.stt = true
       const ok = await store.save(settings)
       ui.log(ok ? 'ok' : 'fail', ok ? `Gespeichert (${store.backend})` : 'Speichern fehlgeschlagen')
     } else if (action === 'all') {

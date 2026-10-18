@@ -58,6 +58,7 @@ Bei jedem Push auf `main` baut GitHub Actions die App, prüft sie, erzeugt `igor
 |---|---|
 | `src/main.ts` | Start, Diagnose-Tests, Sprachablauf und Gesten |
 | `src/glasses.ts` | Alle Brillen-Aufrufe seriell mit Zeitlimit, Text-Updates zusammengefasst |
+| `src/catalog.ts` | Kuratierte Top-10-Listen für Chat und Spracherkennung: kurze Namen mit Eigenschaft in Klammern, jeweils die neueste Version aus der echten Modellliste |
 | `src/openrouter.ts` | Modelle, Schlüssel, Chat (mit Streaming), Spracherkennung |
 | `src/events.ts` | Gesten aus SDK-Ereignissen, Duplikatfilter |
 | `src/pcm.ts` | Mikrofonpuffer, WAV-Kopf, Base64 |

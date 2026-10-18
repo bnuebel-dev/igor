@@ -13,8 +13,9 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   apiKey: '',
-  chatModel: 'google/gemini-2.5-flash',
-  sttModel: 'openai/whisper-large-v3-turbo',
+  // Empty = not chosen yet: the first entry of the curated list applies.
+  chatModel: '',
+  sttModel: '',
   sttFormat: 'pcm',
   language: 'de',
 }

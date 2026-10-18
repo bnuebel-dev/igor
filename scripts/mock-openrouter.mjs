@@ -35,12 +35,31 @@ createServer(async (req, res) => {
 
   if (path === '/models') {
     if (url.searchParams.get('output_modalities') === 'transcription') {
-      return json(res, 200, { data: [{ id: 'openai/whisper-large-v3-turbo', name: 'Whisper', architecture: { input_modalities: ['audio'], output_modalities: ['transcription'] } }] })
+      const stt = ['openai/whisper-1', 'openai/whisper-large-v3', 'openai/whisper-large-v3-turbo', 'acme/hear-7b'].map((id, i) => ({
+        id, name: id, created: 1700000000 + i, architecture: { input_modalities: ['audio'], output_modalities: ['transcription'] },
+      }))
+      return json(res, 200, { data: stt })
     }
+    const text = (id, created, prompt = 0.000001, completion = 0.000004, input = ['text']) => ({
+      id, name: id, created, pricing: { prompt: String(prompt), completion: String(completion) },
+      architecture: { input_modalities: input, output_modalities: ['text'] },
+    })
     return json(res, 200, {
       data: [
-        { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash', architecture: { input_modalities: ['text', 'image', 'audio'], output_modalities: ['text'] } },
-        { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet', architecture: { input_modalities: ['text', 'image'], output_modalities: ['text'] } },
+        text('google/gemini-2.5-flash', 1750000000, 0.0000003, 0.0000025, ['text', 'audio']),
+        text('google/gemini-3-flash-preview', 1760000000, 0.0000005, 0.000003, ['text', 'audio']),
+        text('google/gemini-2.5-flash-lite', 1751000000, 0.0000001, 0.0000004),
+        text('google/gemini-2.5-flash-image', 1770000000),
+        text('google/gemini-2.5-pro', 1752000000, 0.00000125, 0.00001),
+        text('anthropic/claude-haiku-4.5', 1753000000, 0.000001, 0.000005),
+        text('anthropic/claude-sonnet-4', 1700000000),
+        text('anthropic/claude-sonnet-4.5', 1754000000, 0.000003, 0.000015),
+        text('anthropic/claude-sonnet-4.5:thinking', 1790000000),
+        text('openai/gpt-5', 1755000000, 0.00000125, 0.00001),
+        text('openai/gpt-5-mini', 1756000000, 0.00000025, 0.000002),
+        text('deepseek/deepseek-chat-v3.1', 1757000000, 0.0000002, 0.0000008),
+        text('mistralai/mistral-medium-3.1', 1758000000, 0.0000004, 0.000002),
+        text('meta-llama/llama-3.3-70b-instruct', 1600000000),
       ],
     })
   }
