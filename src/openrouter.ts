@@ -106,9 +106,45 @@ export type ChatResult = {
   text: string
   /** ms until the first content token (streaming) or the whole answer (non-streaming). */
   firstTokenMs: number
+  /** ms until the response headers arrived. */
+  headersMs: number
   totalMs: number
   usage?: Usage
   streamed: boolean
+  /** Number of reads from the response body; 1 for a long answer means the stream was buffered. */
+  reads: number
+  /** "stop" is normal; "length" means the answer was cut off by the token limit. */
+  finishReason?: string
+  /** True when the model was asked not to think (reasoning off) and accepted that. */
+  thinkingOff: boolean
+}
+
+// Models that refuse `reasoning: { enabled: false }` are remembered so the retry happens only once.
+const refusesThinkingOff = new Set<string>()
+
+/**
+ * Thinking models spend most of the token budget and several seconds on hidden
+ * reasoning, which is wrong for a voice assistant. Ask for no reasoning first;
+ * if the model insists on it (HTTP 400 mentioning reasoning), retry without.
+ */
+async function sendChat(
+  key: string,
+  body: Record<string, unknown>,
+  signal: AbortSignal | undefined,
+): Promise<{ res: Response; thinkingOff: boolean }> {
+  const model = String(body.model)
+  const post = (extra: Record<string, unknown>) =>
+    request('/chat/completions', { key, method: 'POST', signal, body: JSON.stringify({ ...body, ...extra }) })
+
+  if (!refusesThinkingOff.has(model)) {
+    try {
+      return { res: await post({ reasoning: { enabled: false } }), thinkingOff: true }
+    } catch (err) {
+      if (!(err instanceof OpenRouterError) || err.status !== 400 || !/reason|think/i.test(err.detail ?? '')) throw err
+      refusesThinkingOff.add(model)
+    }
+  }
+  return { res: await post({}), thinkingOff: false }
 }
 
 export async function chat(
@@ -119,24 +155,23 @@ export async function chat(
 ): Promise<ChatResult> {
   const started = performance.now()
   const stream = opts.stream ?? true
-  const res = await request('/chat/completions', {
+  const { res, thinkingOff } = await sendChat(
     key,
-    method: 'POST',
-    signal: opts.signal,
-    body: JSON.stringify({
-      model,
-      messages,
-      stream,
-      max_tokens: opts.maxTokens ?? 400,
-    }),
-  })
+    // Generous limit: models that think anyway must still have room left for the answer.
+    { model, messages, stream, max_tokens: opts.maxTokens ?? 1500 },
+    opts.signal,
+  )
+  const headersMs = performance.now() - started
 
   if (!stream || !res.body) {
     const body = await res.json()
     const text = body.choices?.[0]?.message?.content ?? ''
     const ms = performance.now() - started
     opts.onDelta?.(text)
-    return { text, firstTokenMs: ms, totalMs: ms, usage: body.usage, streamed: false }
+    return {
+      text, firstTokenMs: ms, headersMs, totalMs: ms, usage: body.usage, streamed: false, reads: 1,
+      finishReason: body.choices?.[0]?.finish_reason, thinkingOff,
+    }
   }
 
   const reader = res.body.getReader()
@@ -145,9 +180,12 @@ export async function chat(
   let text = ''
   let firstTokenMs = 0
   let usage: Usage | undefined
+  let finishReason: string | undefined
+  let reads = 0
   for (;;) {
     const { value, done } = await reader.read()
     if (done) break
+    reads++
     for (const data of parser.feed(decoder.decode(value, { stream: true }))) {
       if (data === '[DONE]') continue
       let chunk: any
@@ -163,10 +201,11 @@ export async function chat(
         text += delta
         opts.onDelta?.(text)
       }
+      finishReason = chunk.choices?.[0]?.finish_reason ?? finishReason
       if (chunk.usage) usage = chunk.usage
     }
   }
-  return { text, firstTokenMs, totalMs: performance.now() - started, usage, streamed: true }
+  return { text, firstTokenMs, headersMs, totalMs: performance.now() - started, usage, streamed: true, reads, finishReason, thinkingOff }
 }
 
 export type TranscriptionResult = { text: string; totalMs: number; usage?: Usage }

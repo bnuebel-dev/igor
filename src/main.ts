@@ -140,7 +140,10 @@ const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream', () => Promise
     const key = needKey()
     if (!key) return
     const r = await chat(key, settings.chatModel, persona('Sag in einem Satz Hallo.'), { stream: false })
-    ui.log('ok', `3 Chat ${settings.chatModel}: ${ms(r.totalMs)}, ${costText(r.usage)}: "${r.text}"`)
+    ui.log(
+      r.finishReason === 'length' ? 'fail' : 'ok',
+      `3 Chat ${settings.chatModel}: ${ms(r.totalMs)}, ${costText(r.usage)}, Denken ${r.thinkingOff ? 'aus' : 'an'}, Ende: ${r.finishReason ?? '?'}: "${r.text}"`,
+    )
   },
   async 'chat-stream'() {
     const key = needKey()
@@ -151,7 +154,7 @@ const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream', () => Promise
     })
     ui.log(
       r.streamed && deltas > 1 ? 'ok' : 'fail',
-      `4 Stream: erstes Token ${ms(r.firstTokenMs)}, gesamt ${ms(r.totalMs)}, ${deltas} Teile, ${costText(r.usage)}`,
+      `4 Stream: Antwort-Kopf nach ${ms(r.headersMs)}, erstes Token ${ms(r.firstTokenMs)}, gesamt ${ms(r.totalMs)}, ${deltas} Teile in ${r.reads} Lesevorgängen, Denken ${r.thinkingOff ? 'aus' : 'an'}, ${costText(r.usage)}`,
     )
   },
 }
@@ -172,6 +175,20 @@ async function testBrowserMic() {
   ui.log('info', `Aufnahme: ${(pcm.length / 32000).toFixed(1)} s, ${pcm.length} Bytes (16 kHz, mono)`)
   const stt = await transcribe(key, settings.sttModel, pcm, { format: settings.sttFormat, language: settings.language || undefined })
   ui.log('ok', `5 Spracherkennung ${settings.sttModel} (${settings.sttFormat}): ${ms(stt.totalMs)}, "${stt.text}"`)
+}
+
+const VOICE_TEST_SECONDS = 5
+
+/** Phone-side trigger for the same voice loop the temple tap starts: glasses mic, recognition, answer. */
+async function voiceTest() {
+  if (mode !== 'idle') {
+    ui.log('fail', 'Die Brille ist gerade beschäftigt')
+    return
+  }
+  ui.log('info', `Bitte jetzt in die Brille sprechen, Aufnahme läuft ${VOICE_TEST_SECONDS} Sekunden …`)
+  await startRecording()
+  // startRecording changes `mode`; TypeScript cannot see that across the await.
+  if ((mode as Mode) === 'recording') setTimeout(() => void stopRecording(), VOICE_TEST_SECONDS * 1000)
 }
 
 let busy = false
@@ -209,7 +226,8 @@ async function handle(action: Action) {
         }
       }
     } else if (action === 'mic') {
-      await testBrowserMic()
+      if (glasses) await voiceTest()
+      else await testBrowserMic()
     } else if (action === 'ask') {
       const q = ui.question()
       if (q) await answer(q)
@@ -295,7 +313,7 @@ async function answer(question: string) {
       onDelta: text => glasses?.show(head + text),
     })
     glasses?.show(`${head}${r.text}\n\n${HELP}`)
-    ui.log('ok', `Antwort ${settings.chatModel}: erstes Token ${ms(r.firstTokenMs)}, gesamt ${ms(r.totalMs)}, ${costText(r.usage)}`)
+    ui.log('ok', `Antwort ${settings.chatModel}: erstes Token ${ms(r.firstTokenMs)}, gesamt ${ms(r.totalMs)}, ${costText(r.usage)}, Ende: ${r.finishReason ?? '?'}`)
     ui.log('info', `IGOR: ${r.text}`)
   } catch (err) {
     ui.log('fail', `Antwort: ${describe(err)}`)

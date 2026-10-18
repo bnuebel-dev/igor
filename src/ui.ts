@@ -74,8 +74,8 @@ export function mountUi(onAction: (action: Action) => void) {
           <button data-action="chat-stream">4 Chat-Stream</button>
         </div>
         <button data-action="all" class="primary">Tests 1 bis 4 nacheinander</button>
-        <button data-action="mic">5 Sprache: 4 s mit Browser-Mikrofon</button>
-        <p class="hint">Test 5 prüft Spracherkennung und Audioformat ohne Brille. An der Brille: tippen, sprechen, erneut tippen, oder lange drücken, sprechen, loslassen.</p>
+        <button data-action="mic">5 Sprachtest (5 s sprechen)</button>
+        <p class="hint">Test 5: in die Brille sprechen (im Browser: ins Mikrofon). Er prüft Mikrofon, Spracherkennung und Antwort. An der Brille selbst: tippen, sprechen, erneut tippen, oder lange drücken, sprechen, loslassen.</p>
       </section>
 
       <section>
