@@ -34,7 +34,7 @@ const textContainer = (content: string) =>
     height: 288,
     borderWidth: 0,
     borderColor: 0,
-    paddingLength: 4,
+    paddingLength: 6,
     containerID: MAIN.id,
     containerName: MAIN.name,
     content: clampUtf8(content),

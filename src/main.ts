@@ -12,7 +12,7 @@ import {
 import {
   chat, keyInfo, listModels, listTranscriptionModels, OpenRouterError, transcribe, type ChatMessage, type ModelInfo, type Usage,
 } from './openrouter.ts'
-import { DEFAULT_PERSONA } from './persona.ts'
+import { DEFAULT_PERSONA, GREETING } from './persona.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
@@ -34,7 +34,7 @@ const bridge = await connectBridge()
 
 // The glasses page comes first: nothing else may delay it, and the first call is the only one that counts.
 const glasses = bridge ? new Glasses(bridge, msg => phone.log('fail', msg)) : null
-const glassesStarted = glasses ? await glasses.start('IGOR startet …') : false
+const glassesStarted = glasses ? await glasses.start(`IGOR\n\n${GREETING}`) : false
 const kv = createKv(bridge)
 let settings: Settings = await loadSettings(kv)
 phone.writeSettings(settings)
