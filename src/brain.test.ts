@@ -237,6 +237,15 @@ describe('prompt', () => {
     expect(sys).toContain('[[MERKEN: kurzer Satz]]')
   })
 
+  it('adds the document passages with their sources, and nothing without any', () => {
+    const p = [{ docId: 'a', source: 'Mietvertrag, Seite 4', text: 'Drei Monate.', score: 2 }]
+    const sys = systemPrompt('Sie sind IGOR.', emptyMemory(), when, p)
+    expect(sys).toContain('Auszüge aus den Unterlagen')
+    expect(sys).toContain('Quelle: Mietvertrag, Seite 4\nDrei Monate.')
+    expect(sys).toContain('ignorieren Sie die Auszüge')
+    expect(systemPrompt('Sie sind IGOR.', emptyMemory(), when)).not.toContain('Auszüge aus den Unterlagen')
+  })
+
   it('leaves out empty sections', () => {
     const sys = systemPrompt('Sie sind IGOR.', emptyMemory(), when)
     expect(sys).not.toContain('Das weiß ich über den Nutzer')

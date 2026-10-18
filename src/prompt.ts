@@ -1,5 +1,6 @@
 import type { ChatMessage } from './openrouter.ts'
-import { MEMORY_RULES } from './persona.ts'
+import { DOC_RULES, MEMORY_RULES } from './persona.ts'
+import type { Passage } from './library.ts'
 import { topicById, type Memory, type Turn } from './memory.ts'
 
 /** Room for notes in the system prompt, in characters; the newest notes win. */
@@ -39,7 +40,13 @@ export function trimHistory(history: Turn[], budget = HISTORY_BUDGET): Turn[] {
   return picked
 }
 
-export function systemPrompt(persona: string, memory: Memory, now: Date = new Date()): string {
+/** The passages found for this question, each labelled with the source the model should cite. */
+export function passageBlock(passages: Passage[]): string {
+  const items = passages.map(p => `Quelle: ${p.source}\n${p.text}`).join('\n\n---\n\n')
+  return `${DOC_RULES}\n\nAuszüge aus den Unterlagen:\n\n${items}`
+}
+
+export function systemPrompt(persona: string, memory: Memory, now: Date = new Date(), passages: Passage[] = []): string {
   const topic = topicById(memory, memory.currentTopicId)
   const parts = [persona.trim(), `Heute ist ${germanNow(now)}.`]
 
@@ -52,6 +59,7 @@ export function systemPrompt(persona: string, memory: Memory, now: Date = new Da
     const own = noteLines(topic.notes, Math.floor(NOTES_BUDGET / 2))
     if (own.length) parts.push(`Notizen zu diesem Thema:\n${own.join('\n')}`)
   }
+  if (passages.length) parts.push(passageBlock(passages))
   parts.push(MEMORY_RULES)
   return parts.join('\n\n')
 }
@@ -63,9 +71,10 @@ export function buildMessages(opts: {
   history: Turn[]
   question: string
   now?: Date
+  passages?: Passage[]
 }): ChatMessage[] {
   return [
-    { role: 'system', content: systemPrompt(opts.persona, opts.memory, opts.now) },
+    { role: 'system', content: systemPrompt(opts.persona, opts.memory, opts.now, opts.passages) },
     ...trimHistory(opts.history),
     { role: 'user', content: opts.question },
   ]

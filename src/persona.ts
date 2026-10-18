@@ -18,6 +18,15 @@ export const SEARCH_RULES = [
   '("laut Tagesschau"), ohne Links, ohne Fußnoten und ohne Nummern in Klammern.',
 ].join(' ')
 
+/** Added when passages from the user's documents are attached to the question. */
+export const DOC_RULES = [
+  'Unterlagen: Unten stehen Auszüge aus den eigenen Dokumenten des Nutzers, gefunden per Stichwortsuche.',
+  'Passt die Frage erkennbar nicht dazu, ignorieren Sie die Auszüge. Beantworten Sie Fragen zu den Unterlagen nur anhand dieser Auszüge.',
+  'Nennen Sie die Quelle mit Namen und Seite oder Abschnitt, zum Beispiel "laut Mietvertrag, Seite 4", ohne Nummern und ohne Links.',
+  'Steht die Antwort nicht in den Auszügen, sagen Sie das offen und raten Sie nicht; Allgemeinwissen kennzeichnen Sie dann als solches.',
+  'Bei Fragen zu den Unterlagen dürfen Sie bis zu sechs Sätze schreiben, wenn es der Sache dient.',
+].join(' ')
+
 /** Appended to the system prompt on every request; not editable. */
 export const MEMORY_RULES = [
   'Gedächtnis: Wenn der Nutzer etwas Dauerhaftes über sich, seine Vorlieben, Pläne oder das aktuelle Thema sagt,',

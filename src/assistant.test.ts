@@ -523,3 +523,40 @@ describe('menu', () => {
     expect(r.last()).toContain('Neuer Chat, Boss.')
   })
 })
+
+describe('documents', () => {
+  const passage = { docId: 'd1', source: 'Mietvertrag, Seite 4', text: 'Die Kündigungsfrist beträgt drei Monate.', score: 3 }
+
+  it('attaches the passages found for the question and the previous one', async () => {
+    const queries: [string, string | null][] = []
+    const r = rig({ findPassages: (q, t) => (queries.push([q, t]), [passage]) })
+    await speak(r)
+    const system = r.asked[0]![0]!.content
+    expect(system).toContain('Quelle: Mietvertrag, Seite 4')
+    expect(system).toContain('Die Kündigungsfrist beträgt drei Monate.')
+    expect(queries[0]).toEqual(['Wie spät ist es?', null])
+
+    r.a.onGesture('tap') // answer -> next question
+    await flush()
+    r.a.onPcm(SPEECH)
+    r.a.onGesture('tap')
+    await flush()
+    expect(queries[1]![0]).toBe('Wie spät ist es? Wie spät ist es?') // follow-up carries the previous question
+  })
+
+  it('passes the current topic so its documents rank first', async () => {
+    const queries: (string | null)[] = []
+    const r = rig({ findPassages: (_q, t) => (queries.push(t), []) })
+    const t = r.store.update(m => createTopic(m, 'Hausbau'))
+    if (!t.ok) throw new Error('topic')
+    r.store.update(m => ({ ...m, currentTopicId: t.value.id }))
+    await speak(r)
+    expect(queries).toEqual([t.value.id])
+  })
+
+  it('sends no document block when nothing matches', async () => {
+    const r = rig({ findPassages: () => [] })
+    await speak(r)
+    expect(r.asked[0]![0]!.content).not.toContain('Auszüge aus den Unterlagen')
+  })
+})

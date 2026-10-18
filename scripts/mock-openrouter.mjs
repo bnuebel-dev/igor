@@ -87,9 +87,12 @@ createServer(async (req, res) => {
     const system = String(body.messages?.[0]?.content ?? '')
     console.log(`chat: ${body.model} stream=${body.stream} tools=${(body.tools ?? []).map(t => t.type).join(',') || '-'} reasoning=${JSON.stringify(body.reasoning)} turns=${body.messages?.length} "${last.slice(0, 60).replace(/\n/g, ' ')}"`)
     // Answer depends on the question so the app's features can be exercised without a real model.
+    const sources = [...system.matchAll(/^Quelle: (.+)$/gm)].map(m => m[1])
+    if (sources.length) console.log(`  unterlagen: ${sources.join(' | ')}`)
     let answer = ANSWER
     const searches = body.tools?.some(t => t.type === 'openrouter:web_search') && /nachricht|heute|wetter|aktuell/i.test(last) ? 1 : 0
-    if (searches) answer = 'Laut Tagesschau beschließt der Bundestag heute den Haushalt, Boss [1]. Details: https://www.tagesschau.de/inland'
+    if (sources.length) answer = `Laut ${sources[0]}: drei Monate, Boss.`
+    else if (searches) answer = 'Laut Tagesschau beschließt der Bundestag heute den Haushalt, Boss [1]. Details: https://www.tagesschau.de/inland'
     else if (system.startsWith('Sie führen das Gedächtnis')) answer = 'Garten: Beet im Süden angelegt, Tomaten folgen im Mai.'
     else if (/hund/i.test(last)) answer = 'Ein Hund, Boss, wie wunderbar! Rex ist ein schöner Name.\n\n[[MERKEN: Hund heißt Rex]]'
     else if (/lang|ausführlich/i.test(last)) answer = Array.from({ length: 14 }, (_, i) => `Absatz ${i + 1}: Der Mars hat keine eigene Zeitzone, aber ein Marstag dauert 24 Stunden und 39 Minuten, Boss.`).join('\n\n')

@@ -2,7 +2,7 @@
 
 **I**ntelligenter **G**ehilfe **O**hne **R**uhepause: ein KI-Assistent für die Datenbrille Even Realities G2. Man spricht, IGOR antwortet auf der Brille und nennt einen dabei immer „Boss“. Die Modelle kommen von [OpenRouter](https://openrouter.ai), man bringt seinen eigenen Schlüssel mit.
 
-Stand: **Version 0.3**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen und sucht bei Bedarf im Internet.
+Stand: **Version 0.4**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
 
 ## Bedienung an der Brille
 
@@ -29,7 +29,19 @@ Menü: Neuer Chat, Thema wählen, Modell wählen (die zehn Favoriten), Notizen a
 - **Handy-Seite:** Reiter „Gedächtnis“ zeigt alles, zum Ändern und Löschen, mit Sicherung als Text.
 - **Datenschutz:** Das Gedächtnis liegt im Speicher der Even-App auf dem Handy. Notizen und Zusammenfassungen gehen mit jeder Anfrage an OpenRouter und das gewählte Modell.
 
+## Unterlagen
+
+Auf der Handy-Seite unter **Unterlagen** fügen Sie Dateien hinzu (MD, TXT, PDF, auch aus pCloud über die Android-Dateiauswahl). IGOR zerlegt sie in Abschnitte (Markdown nach Überschriften, PDF nach Seiten), merkt sich Titel und Tags aus dem Kopf einer Markdown-Datei und sucht bei jeder Frage die passenden Abschnitte heraus. Nur diese Auszüge gehen mit der Frage an das Modell, mit Quellenangabe („laut Mietvertrag, Seite 4“). Steht die Antwort nicht darin, sagt IGOR das.
+
+- Jede Datei lässt sich einem Thema zuordnen; Dokumente des aktuellen Themas werden bevorzugt.
+- Eine Datei mit gleichem Pfad ersetzt die ältere Fassung.
+- Grenzen: 2 Mio. Zeichen je Datei, 8 Mio. insgesamt. Eingescannte PDFs ohne Text werden abgelehnt.
+- Die Suche läuft auf dem Handy und kostet nichts. **Suche ausprobieren** zeigt, was IGOR zu einer Frage finden würde.
+- Datenschutz: Die Dokumente liegen im Speicher der Even-App. Die gefundenen Auszüge gehen mit der Frage an OpenRouter und das gewählte Modell.
+
 ## Websuche
+
+Standardmäßig aus.
 
 Braucht eine Frage aktuelle Infos (Nachrichten, Wetter, Preise, Ergebnisse, Öffnungszeiten), sucht das Modell selbst über die Websuche von OpenRouter (`openrouter:web_search`). Bei allgemeinem Wissen sucht es nicht. Höchstens zwei Suchen pro Frage. Eine Suche kostet etwa 1 Cent extra und dauert ein bis drei Sekunden. Einstellbar unter **Einstellungen → Websuche**. Modelle ohne Werkzeug-Unterstützung antworten automatisch ohne Suche. **Diagnose → 6 Websuche** prüft, ob das gewählte Modell sucht.
 
@@ -75,6 +87,7 @@ Bei jedem Push auf `main` baut GitHub Actions die App, prüft sie, erzeugt `igor
 |---|---|
 | `src/main.ts` | Verdrahtung: Brille, Handy-Seite, Speicher, Dienste |
 | `src/assistant.ts` | Zustandsautomat der Brille: Gesten, Aufnahme, Antworten, Menü, Merk-Vorschläge |
+| `src/library.ts`, `src/libraryStore.ts`, `src/ingest.ts` | Unterlagen: Abschnitte, Stichwortsuche, Speicher, Einlesen von MD/TXT/PDF |
 | `src/memory.ts` | Notizen, Themen, Zusammenfassungen, Speicherung |
 | `src/prompt.ts` | Aufbau der Anfrage aus Persona, Gedächtnis und Verlauf |
 | `src/pager.ts` | Seitenteilung mit der Schrift der Brille (`@evenrealities/pretext`) |

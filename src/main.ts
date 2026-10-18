@@ -14,13 +14,16 @@ import {
 } from './openrouter.ts'
 import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
 import { germanNow } from './prompt.ts'
+import { readFile } from './ingest.ts'
+import { LibraryStore } from './libraryStore.ts'
+import { MAX_LIBRARY_CHARS } from './library.ts'
 import { checkMarkers, describeSelection, finishPcloudLogin, probePcloudApi, probePdf, probeStorage, startPcloudLogin } from './probe.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.3.0'
+const VERSION = '0.4.0'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -146,7 +149,58 @@ function describe(err: unknown): string {
   return (err as Error)?.message ?? String(err)
 }
 
+// ---- Documents --------------------------------------------------------------------------------
+
+const library = new LibraryStore(kv, (level, msg) => phone.log(level, msg))
+
+function renderLibrary() {
+  const docs = library.list()
+  const topics = store.memory.topics.map(t => ({ id: t.id, name: t.name }))
+  const used = (library.totalChars / 1000).toFixed(library.totalChars < 10_000 ? 1 : 0)
+  phone.renderLibrary(
+    docs,
+    topics,
+    docs.length ? `${docs.length} Dokument${docs.length > 1 ? 'e' : ''}, ${library.chunkCount} Abschnitte, ${used}k von ${MAX_LIBRARY_CHARS / 1000}k Zeichen` : '',
+  )
+}
+library.subscribe(renderLibrary)
+store.subscribe(renderLibrary)
+void library.load().then(renderLibrary, err => phone.log('fail', `Unterlagen laden: ${describe(err)}`))
+
+async function addFiles(files: File[]) {
+  for (const file of files) {
+    try {
+      const t = performance.now()
+      const r = await library.add(await readFile(file))
+      if (r.ok) phone.log('ok', `Unterlagen: ${r.doc.path} ${r.replaced ? 'ersetzt' : 'hinzugefügt'} (${ms(performance.now() - t)})`)
+      else phone.log('fail', `Unterlagen: ${r.reason}`)
+    } catch (err) {
+      phone.log('fail', `Unterlagen: ${file.name}: ${describe(err)}`)
+    }
+  }
+}
+
+function libraryAction(name: string, d: Record<string, string>): boolean {
+  if (!name.startsWith('lib:')) return false
+  if (name === 'lib:add') {
+    const input = document.getElementById('libFiles') as HTMLInputElement
+    input.value = ''
+    input.click() // must happen inside the tap, before any await
+  } else if (name === 'lib:picked') {
+    const files = [...((document.getElementById('libFiles') as HTMLInputElement).files ?? [])]
+    void runBusy(() => addFiles(files))
+  } else if (name === 'lib:remove') {
+    void library.remove(d.id!).then(ok => ok || phone.log('fail', 'Unterlagen: Löschen vom Speicher abgelehnt'))
+  } else if (name === 'lib:topic') {
+    void library.setTopic(d.id!, d.topic || null)
+  } else if (name === 'lib:search') {
+    phone.renderSearch(library.search(d.query ?? '', { topicId: store.memory.currentTopicId }))
+  }
+  return true
+}
+
 assistant = new Assistant({
+  findPassages: (query, topicId) => library.search(query, { topicId }),
   port,
   store,
   persona,
@@ -337,7 +391,10 @@ let resetArmed = 0
 // ---- Feasibility probes for the document library ---------------------------------------------
 
 const PCLOUD_CLIENT_KEY = 'igor.pcloud.client'
-const plog = (level: 'info' | 'ok' | 'fail', msg: string) => phone.log(level, msg)
+// A function declaration, so the startup code above can use it before this line runs.
+function plog(level: 'info' | 'ok' | 'fail', msg: string) {
+  phone.log(level, msg)
+}
 
 function probeAction(name: string, data: Record<string, string>) {
   // The file dialogs must open inside the click, before any await.
@@ -401,6 +458,7 @@ async function onAction(name: string, data: Record<string, string>) {
     return
   }
   if (memoryAction(name, data)) return
+  if (libraryAction(name, data)) return
   if (name === 'ask') {
     const q = data.question?.trim()
     if (!q) return
@@ -473,6 +531,7 @@ function memoryAction(name: string, d: Record<string, string>): boolean {
       return true
     case 'topic:del':
       store.update(m => deleteTopic(m, d.id))
+      void library.dropTopic(d.id)
       return true
     case 'topic:clearHistory':
       store.update(m => clearHistory(m, d.id))

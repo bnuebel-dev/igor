@@ -1,5 +1,6 @@
 import { CUSTOM, withSelected, type Choice } from './catalog.ts'
 import type { Gesture } from './events.ts'
+import type { DocMeta } from './library.ts'
 import type { Memory } from './memory.ts'
 import { DEFAULT_PERSONA } from './persona.ts'
 import type { Settings } from './storage.ts'
@@ -7,7 +8,7 @@ import type { Settings } from './storage.ts'
 export type Screen = { kind: 'text'; text: string } | { kind: 'list'; title: string; items: string[] }
 type Level = 'info' | 'ok' | 'fail'
 type Picker = 'chatModel' | 'sttModel'
-export type Tab = 'start' | 'memory' | 'settings' | 'diag'
+export type Tab = 'start' | 'memory' | 'docs' | 'settings' | 'diag'
 
 export type Handlers = {
   /** Every button on the page; `data` carries ids and the contents of related input fields. */
@@ -57,6 +58,7 @@ export function mountPhone(h: Handlers) {
       <nav id="tabs">
         <button data-tab="start">Start</button>
         <button data-tab="memory">Gedächtnis</button>
+        <button data-tab="docs">Unterlagen</button>
         <button data-tab="settings">Einstellungen</button>
         <button data-tab="diag">Diagnose</button>
       </nav>
@@ -93,6 +95,17 @@ export function mountPhone(h: Handlers) {
         <textarea id="backup" rows="4" placeholder="Hier erscheint die Sicherung, oder fügen Sie eine ein."></textarea>
         <div class="row"><button data-action="backup:export">Exportieren</button><button data-action="backup:import">Importieren</button></div>
         <button data-action="memory:reset" class="danger">Gedächtnis löschen</button>
+      </section>
+
+      <section data-panel="docs">
+        <button data-action="lib:add" class="primary">Dateien hinzufügen</button>
+        <input type="file" id="libFiles" multiple accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf" hidden>
+        <p class="hint">MD, TXT und PDF. Eine Datei mit gleichem Namen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
+        <p id="libInfo" class="info"></p>
+        <div id="libList"></div>
+        <h2>Suche ausprobieren</h2>
+        <div class="row"><label>Frage oder Stichwort<input id="libQuery" autocomplete="off"></label><button data-action="lib:search" class="quiet">Suchen</button></div>
+        <div id="libResults"></div>
       </section>
 
       <section data-panel="settings">
@@ -160,6 +173,9 @@ export function mountPhone(h: Handlers) {
     const id = (e.target as HTMLElement).id
     if (id === 'chatModel' || id === 'sttModel') syncPicker(id)
     if (id === 'probeFiles' || id === 'probeFolder' || id === 'probePdfFile') h.action('probe:picked', { id })
+    if (id === 'libFiles') h.action('lib:picked', {})
+    const docSel = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-doc-topic]')
+    if (docSel) h.action('lib:topic', { id: docSel.dataset.docTopic!, topic: docSel.value })
     if (id === 'topicSelect') h.action('topic:select', { id: (e.target as HTMLSelectElement).value })
   })
   app.addEventListener('toggle', e => {
@@ -185,6 +201,7 @@ export function mountPhone(h: Handlers) {
     data.summary = inner('.f-summary')
     data.backup = $<HTMLTextAreaElement>('backup').value
     data.question = $<HTMLTextAreaElement>('question').value
+    data.query = $<HTMLInputElement>('libQuery').value
     h.action(btn.dataset.action!, data)
   })
   // Push-to-talk on the virtual glasses.
@@ -287,6 +304,26 @@ export function mountPhone(h: Handlers) {
             .join('')
         : '<p class="hint">Noch keine Themen. Sagen Sie „Thema Garten“ oder legen Sie eines an.</p>'
     },
+    renderLibrary(docs: DocMeta[], topics: { id: string; name: string }[], summary: string) {
+      $('libInfo').textContent = summary
+      $('libList').innerHTML = docs.length
+        ? docs
+            .map(d => {
+              const where = d.pages ? `${d.pages} Seite${d.pages > 1 ? 'n' : ''}` : `${Math.max(1, Math.round(d.chars / 1000))}k Zeichen`
+              const opts = [`<option value="">kein Thema</option>`, ...topics.map(t => `<option value="${esc(t.id)}"${t.id === d.topicId ? ' selected' : ''}>${esc(t.name)}</option>`)]
+              return `<div class="doc"><strong>${esc(d.path)}</strong>
+                <span class="hint">${d.kind.toUpperCase()} · ${where}${d.tags.length ? ` · ${esc(d.tags.slice(0, 4).join(', '))}` : ''}</span>
+                <div class="row"><select data-doc-topic="${esc(d.id)}">${opts.join('')}</select>
+                <button data-action="lib:remove" data-id="${esc(d.id)}" class="quiet">Löschen</button></div></div>`
+            })
+            .join('')
+        : '<p class="hint">Noch keine Unterlagen.</p>'
+    },
+    renderSearch(passages: { source: string; text: string }[]) {
+      $('libResults').innerHTML = passages.length
+        ? passages.map(p => `<div class="doc"><strong>${esc(p.source)}</strong><span class="hint">${esc(p.text.length > 320 ? `${p.text.slice(0, 320)}…` : p.text)}</span></div>`).join('')
+        : '<p class="hint">Nichts gefunden.</p>'
+    },
     clearInputs() {
       $<HTMLInputElement>('noteNew').value = ''
       $<HTMLInputElement>('topicNew').value = ''
@@ -315,9 +352,15 @@ function injectStyles() {
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
     h2 { font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: #8a8a8a; margin: 24px 0 8px; }
-    nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 12px 0 16px; background: #1a1a1a; border-radius: 12px; padding: 4px; }
+    nav { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 12px 0 16px; background: #1a1a1a; border-radius: 12px; padding: 4px; }
     nav button { margin: 0; padding: 8px 2px; font-size: 13px; background: transparent; border-radius: 9px; }
     nav button.on { background: #2e2e2e; }
+    nav button:nth-child(-n+3) { grid-column: span 2; }
+    nav button:nth-child(n+4) { grid-column: span 3; }
+    .doc { background: #232323; border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
+    .doc strong { display: block; font-weight: 500; overflow-wrap: anywhere; }
+    .doc .hint { display: block; margin: 2px 0 4px; overflow-wrap: anywhere; white-space: pre-line; }
+    .doc .row { align-items: end; }
     section { background: #1a1a1a; border-radius: 16px; padding: 16px; }
     label { display: block; font-size: 13px; color: #8a8a8a; margin-bottom: 12px; }
     input, select, textarea { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; background: rgba(255,255,255,0.08);

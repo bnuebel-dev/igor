@@ -9,6 +9,7 @@ import {
 import type { ChatMessage } from './openrouter.ts'
 import { pageFooter, paginate, type LineCounter } from './pager.ts'
 import { PcmRecorder } from './pcm.ts'
+import type { Passage } from './library.ts'
 import { GREETING } from './persona.ts'
 import { buildMessages, summaryMessages } from './prompt.ts'
 
@@ -32,6 +33,8 @@ export interface Deps {
   transcribe(pcm: Uint8Array, signal: AbortSignal): Promise<string>
   /** Streams the answer; resolves with the complete text. */
   ask(messages: ChatMessage[], onText: (soFar: string) => void, signal: AbortSignal): Promise<string>
+  /** Passages from the user's documents that match the question; omitted when there is no library. */
+  findPassages?(query: string, topicId: string | null): Passage[]
   /** Non-streaming helper call, used for topic summaries. */
   complete(messages: ChatMessage[]): Promise<string>
   measure: LineCounter
@@ -433,12 +436,18 @@ export class Assistant {
     this.d.port.showText(`${head}Moment, Boss…`)
     this.abort = new AbortController()
     const signal = this.abort.signal
+    const history = this.currentHistory()
+    // A follow-up like "und die Kaution?" has few keywords of its own, so the previous question helps the search.
+    const lastQuestion = [...history].reverse().find(t => t.role === 'user')?.content ?? ''
+    const passages = this.d.findPassages?.(`${question} ${lastQuestion}`.trim(), this.d.store.memory.currentTopicId) ?? []
+    if (passages.length) this.d.log('info', `Unterlagen: ${passages.map(p => p.source).join(' · ')}`)
     const messages = buildMessages({
       persona: this.d.persona(),
       memory: this.d.store.memory,
-      history: this.currentHistory(),
+      history,
       question,
       now: this.d.now?.(),
+      passages,
     })
     try {
       const full = await this.d.ask(

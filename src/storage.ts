@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sttFormat: 'wav',
   language: 'de',
   persona: '',
-  webSearch: true,
+  webSearch: false,
 }
 
 const SETTINGS_KEY = 'igor.settings'
