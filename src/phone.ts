@@ -107,6 +107,8 @@ export function mountPhone(h: Handlers) {
           <label>Audioformat<select id="sttFormat"><option value="wav">wav (empfohlen)</option><option value="pcm">pcm (roh, oft abgelehnt)</option></select></label>
           <label>Sprache<input id="language" maxlength="5"></label>
         </div>
+        <label>Websuche<select id="webSearch"><option value="on">an: sucht, wenn die Frage aktuelle Infos braucht</option><option value="off">aus</option></select></label>
+        <p class="info">Eine Suche kostet etwa 1 Cent zusätzlich und dauert ein bis drei Sekunden.</p>
         <label>Persönlichkeit von IGOR<textarea id="persona" rows="6"></textarea></label>
         <div class="row"><button data-action="persona:reset" class="quiet">Standard</button><button data-action="save" class="primary">Speichern</button></div>
       </section>
@@ -120,7 +122,8 @@ export function mountPhone(h: Handlers) {
         </div>
         <button data-action="all" class="primary">Tests 1 bis 4 nacheinander</button>
         <button data-action="mic">5 Sprachtest (5 s sprechen)</button>
-        <p class="hint">Test 5 spricht in die Brille (im Browser: ins Mikrofon) und prüft Mikrofon, Erkennung und Antwort.</p>
+        <button data-action="search">6 Websuche</button>
+        <p class="hint">Test 5 spricht in die Brille (im Browser: ins Mikrofon) und prüft Mikrofon, Erkennung und Antwort. Test 6 fragt nach den Nachrichten des Tages und zeigt, ob das Modell gesucht hat.</p>
         <h2>Protokoll</h2>
         <button data-action="copy">Protokoll kopieren</button>
         <ol id="log"></ol>
@@ -200,6 +203,7 @@ export function mountPhone(h: Handlers) {
         sttFormat: $<HTMLSelectElement>('sttFormat').value as Settings['sttFormat'],
         language: $<HTMLInputElement>('language').value.trim(),
         persona: persona === DEFAULT_PERSONA ? '' : persona,
+        webSearch: $<HTMLSelectElement>('webSearch').value === 'on',
       }
     },
     writeSettings(s: Settings) {
@@ -207,6 +211,7 @@ export function mountPhone(h: Handlers) {
       $<HTMLSelectElement>('sttFormat').value = s.sttFormat
       $<HTMLInputElement>('language').value = s.language
       $<HTMLTextAreaElement>('persona').value = s.persona || DEFAULT_PERSONA
+      $<HTMLSelectElement>('webSearch').value = s.webSearch ? 'on' : 'off'
     },
     resetPersona: () => ($<HTMLTextAreaElement>('persona').value = DEFAULT_PERSONA),
     setChatChoices: (c: Choice[], selected: string) => fillPicker('chatModel', c, selected),

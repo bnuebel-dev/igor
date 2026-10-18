@@ -41,6 +41,9 @@ export function sanitizeForGlasses(text: string): string {
     .replace(/^#{1,6}\s+/gm, '')
     .replace(/^\s*[-*+]\s+/gm, '• ')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    // Web search answers: footnote markers and bare links are noise on the glasses.
+    .replace(/\s?\[\d+(?:[,\s]*\d+)*\]/g, '')
+    .replace(/\s?\(https?:\/\/[^\s)]+\)|\s?<?https?:\/\/[^\s)>]+>?/g, '')
     .replace(EMOJI, '')
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')

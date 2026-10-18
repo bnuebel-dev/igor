@@ -2,7 +2,7 @@
 
 **I**ntelligenter **G**ehilfe **O**hne **R**uhepause: ein KI-Assistent für die Datenbrille Even Realities G2. Man spricht, IGOR antwortet auf der Brille und nennt einen dabei immer „Boss“. Die Modelle kommen von [OpenRouter](https://openrouter.ai), man bringt seinen eigenen Schlüssel mit.
 
-Stand: **Version 0.2**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, und hat ein Gedächtnis mit Notizen und Themen.
+Stand: **Version 0.3**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen und sucht bei Bedarf im Internet.
 
 ## Bedienung an der Brille
 
@@ -28,6 +28,10 @@ Menü: Neuer Chat, Thema wählen, Modell wählen (die zehn Favoriten), Notizen a
 - **Themen:** „Thema Garten“ legt ein Thema an oder wählt es. Jedes Thema hat eigene Notizen, einen Verlauf und eine laufende Zusammenfassung, die IGOR nach drei Fragen und beim Verlassen erneuert. „Kein Thema“ geht zurück zum allgemeinen Chat.
 - **Handy-Seite:** Reiter „Gedächtnis“ zeigt alles, zum Ändern und Löschen, mit Sicherung als Text.
 - **Datenschutz:** Das Gedächtnis liegt im Speicher der Even-App auf dem Handy. Notizen und Zusammenfassungen gehen mit jeder Anfrage an OpenRouter und das gewählte Modell.
+
+## Websuche
+
+Braucht eine Frage aktuelle Infos (Nachrichten, Wetter, Preise, Ergebnisse, Öffnungszeiten), sucht das Modell selbst über die Websuche von OpenRouter (`openrouter:web_search`). Bei allgemeinem Wissen sucht es nicht. Höchstens zwei Suchen pro Frage. Eine Suche kostet etwa 1 Cent extra und dauert ein bis drei Sekunden. Einstellbar unter **Einstellungen → Websuche**. Modelle ohne Werkzeug-Unterstützung antworten automatisch ohne Suche. **Diagnose → 6 Websuche** prüft, ob das gewählte Modell sucht.
 
 ## Ohne Brille
 

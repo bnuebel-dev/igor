@@ -10,15 +10,16 @@ import {
   serializeMemory, setSummary,
 } from './memory.ts'
 import {
-  chat, keyInfo, listModels, listTranscriptionModels, OpenRouterError, transcribe, type ChatMessage, type ModelInfo, type Usage,
+  chat, keyInfo, listModels, listTranscriptionModels, OpenRouterError, searchCount, transcribe, type ChatMessage, type ModelInfo, type Usage,
 } from './openrouter.ts'
-import { DEFAULT_PERSONA, GREETING } from './persona.ts'
+import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
+import { germanNow } from './prompt.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -123,14 +124,20 @@ const port: Port = {
 // With the local mock API any sk-or- key is accepted, so tests run without a real key.
 const MOCK_KEY = import.meta.env.VITE_OPENROUTER_API ? 'sk-or-mock' : ''
 const key = () => settings.apiKey || MOCK_KEY
-const persona = () => settings.persona.trim() || DEFAULT_PERSONA
+const persona = () => {
+  const base = settings.persona.trim() || DEFAULT_PERSONA
+  return settings.webSearch ? `${base}\n\n${SEARCH_RULES}` : base
+}
 const ms = (n: number) => `${Math.round(n)} ms`
 const formatNote = (r: { format: string; fellBack: boolean }) => (r.fellBack ? `${r.format}, pcm abgelehnt` : r.format)
 
 function costText(usage?: Usage): string {
   if (!usage) return ''
   const tokens = `${usage.prompt_tokens ?? '?'}+${usage.completion_tokens ?? '?'} Tokens`
-  return typeof usage.cost === 'number' ? `${tokens}, ${usage.cost.toFixed(5)} $` : tokens
+  const searches = searchCount(usage)
+  const parts = [tokens, searches ? `${searches} Websuche${searches > 1 ? 'n' : ''}` : '']
+  if (typeof usage.cost === 'number') parts.push(`${usage.cost.toFixed(5)} $`)
+  return parts.filter(Boolean).join(', ')
 }
 
 function describe(err: unknown): string {
@@ -158,7 +165,8 @@ assistant = new Assistant({
     return r.text
   },
   async ask(messages, onText, signal) {
-    const r = await chat(key(), settings.chatModel, messages, { onDelta: onText, signal })
+    const r = await chat(key(), settings.chatModel, messages, { onDelta: onText, signal, webSearch: settings.webSearch })
+    if (r.searchRefused) phone.log('info', `${settings.chatModel} kann keine Websuche; Antwort ohne Suche.`)
     phone.log(
       r.finishReason === 'length' ? 'fail' : 'ok',
       `Antwort ${settings.chatModel}: erstes Token ${ms(r.firstTokenMs)}, gesamt ${ms(r.totalMs)}, ${costText(r.usage)}, Ende: ${r.finishReason ?? '?'}`,
@@ -276,7 +284,7 @@ function requireKey(): boolean {
   return false
 }
 
-const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream', () => Promise<void>> = {
+const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream' | 'search', () => Promise<void>> = {
   async cors() {
     const t = performance.now()
     const models = await listModels()
@@ -302,6 +310,21 @@ const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream', () => Promise
     phone.log(
       r.streamed && deltas > 1 ? 'ok' : 'fail',
       `4 Stream: Antwort-Kopf nach ${ms(r.headersMs)}, erstes Token ${ms(r.firstTokenMs)}, gesamt ${ms(r.totalMs)}, ${deltas} Teile in ${r.reads} Lesevorgängen, Denken ${r.thinkingOff ? 'aus' : 'an'}, ${costText(r.usage)}`,
+    )
+  },
+  async search() {
+    if (!requireKey()) return
+    const messages = [
+      { role: 'system' as const, content: `${SEARCH_RULES}\n\nHeute ist ${germanNow()}.` },
+      { role: 'user' as const, content: 'Was ist heute die wichtigste Nachricht in Deutschland? Ein Satz.' },
+    ]
+    const r = await chat(key(), settings.chatModel, messages, { stream: false, webSearch: true })
+    const searched = searchCount(r.usage) > 0
+    phone.log(
+      searched ? 'ok' : 'fail',
+      r.searchRefused
+        ? `6 Websuche: ${settings.chatModel} kann keine Werkzeuge, bitte ein anderes Modell wählen`
+        : `6 Websuche ${settings.chatModel}: ${searched ? 'gesucht' : 'nicht gesucht'}, ${ms(r.totalMs)}, ${costText(r.usage)}: "${sanitizeForGlasses(r.text)}"`,
     )
   },
 }

@@ -10,6 +10,14 @@ export const DEFAULT_PERSONA = [
 
 export const GREETING = 'Zu Diensten, Boss.'
 
+/** Added to the persona while web search is on; not editable. */
+export const SEARCH_RULES = [
+  'Sie haben eine Websuche. Nutzen Sie sie, wenn die Frage aktuelle oder überprüfbare Fakten braucht:',
+  'Nachrichten, Wetter, Preise, Kurse, Ergebnisse, Termine, Öffnungszeiten, Personen oder Ereignisse nach Ihrem Wissensstand.',
+  'Bei allgemeinem Wissen und Smalltalk suchen Sie nicht. Nennen Sie höchstens eine Quelle mit Namen',
+  '("laut Tagesschau"), ohne Links, ohne Fußnoten und ohne Nummern in Klammern.',
+].join(' ')
+
 /** Appended to the system prompt on every request; not editable. */
 export const MEMORY_RULES = [
   'Gedächtnis: Wenn der Nutzer etwas Dauerhaftes über sich, seine Vorlieben, Pläne oder das aktuelle Thema sagt,',

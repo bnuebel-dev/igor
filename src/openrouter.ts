@@ -17,7 +17,12 @@ export type ModelInfo = {
   created?: number
 }
 
-export type Usage = { prompt_tokens?: number; completion_tokens?: number; cost?: number }
+export type Usage = {
+  prompt_tokens?: number
+  completion_tokens?: number
+  cost?: number
+  server_tool_use?: { web_search_requests?: number }
+}
 
 export class OpenRouterError extends Error {
   constructor(
@@ -129,7 +134,24 @@ export type ChatResult = {
   finishReason?: string
   /** True when the model was asked not to think (reasoning off) and accepted that. */
   thinkingOff: boolean
+  /** Web search was requested but the model cannot use tools, so it answered without. */
+  searchRefused: boolean
 }
+
+/** OpenRouter runs the search itself; the model decides whether a question needs it. */
+export const WEB_SEARCH_TOOL = {
+  type: 'openrouter:web_search',
+  parameters: { max_results: 5, max_uses: 2, max_total_results: 10 },
+}
+
+// Models without tool support answer 400/404 to a request with tools; they get plain requests afterwards.
+const refusesTools = new Set<string>()
+
+const isToolRefusal = (err: unknown) =>
+  err instanceof OpenRouterError && (err.status === 400 || err.status === 404) && /tool/i.test(`${err.detail ?? ''}`)
+
+/** Number of web searches OpenRouter reports for one answer. */
+export const searchCount = (usage?: Usage) => usage?.server_tool_use?.web_search_requests ?? 0
 
 // Models that refuse `reasoning: { enabled: false }` are remembered so the retry happens only once.
 const refusesThinkingOff = new Set<string>()
@@ -163,26 +185,42 @@ export async function chat(
   key: string,
   model: string,
   messages: ChatMessage[],
-  opts: { stream?: boolean; onDelta?: (text: string) => void; signal?: AbortSignal; maxTokens?: number } = {},
+  opts: {
+    stream?: boolean
+    onDelta?: (text: string) => void
+    signal?: AbortSignal
+    maxTokens?: number
+    webSearch?: boolean
+  } = {},
 ): Promise<ChatResult> {
   const started = performance.now()
   const stream = opts.stream ?? true
-  const { res, thinkingOff } = await sendChat(
-    key,
-    // Generous limit: models that think anyway must still have room left for the answer.
-    { model, messages, stream, max_tokens: opts.maxTokens ?? 1500 },
-    opts.signal,
-  )
+  // Generous limit: models that think anyway must still have room left for the answer.
+  const body = { model, messages, stream, max_tokens: opts.maxTokens ?? 1500 }
+  const wantsSearch = !!opts.webSearch
+  let searchRefused = wantsSearch && refusesTools.has(model)
+  let sent: { res: Response; thinkingOff: boolean }
+  if (wantsSearch && !searchRefused) {
+    try {
+      sent = await sendChat(key, { ...body, tools: [WEB_SEARCH_TOOL] }, opts.signal)
+    } catch (err) {
+      if (!isToolRefusal(err)) throw err
+      refusesTools.add(model)
+      searchRefused = true
+      sent = await sendChat(key, body, opts.signal)
+    }
+  } else sent = await sendChat(key, body, opts.signal)
+  const { res, thinkingOff } = sent
   const headersMs = performance.now() - started
 
   if (!stream || !res.body) {
-    const body = await res.json()
-    const text = body.choices?.[0]?.message?.content ?? ''
+    const json = await res.json()
+    const text = json.choices?.[0]?.message?.content ?? ''
     const ms = performance.now() - started
     opts.onDelta?.(text)
     return {
-      text, firstTokenMs: ms, headersMs, totalMs: ms, usage: body.usage, streamed: false, reads: 1,
-      finishReason: body.choices?.[0]?.finish_reason, thinkingOff,
+      text, firstTokenMs: ms, headersMs, totalMs: ms, usage: json.usage, streamed: false, reads: 1,
+      finishReason: json.choices?.[0]?.finish_reason, thinkingOff, searchRefused,
     }
   }
 
@@ -217,7 +255,7 @@ export async function chat(
       if (chunk.usage) usage = chunk.usage
     }
   }
-  return { text, firstTokenMs, headersMs, totalMs: performance.now() - started, usage, streamed: true, reads, finishReason, thinkingOff }
+  return { text, firstTokenMs, headersMs, totalMs: performance.now() - started, usage, streamed: true, reads, finishReason, thinkingOff, searchRefused }
 }
 
 export type AudioFormat = 'pcm' | 'wav'

@@ -22,6 +22,13 @@ describe('text', () => {
     const md = '# Titel\n**Fett** und *kursiv*, `code` 😀\n- Punkt\n[Link](https://x.y)'
     expect(sanitizeForGlasses(md)).toBe('Titel\nFett und kursiv, code\n• Punkt\nLink')
   })
+
+  it('drops footnote markers and bare links from search answers', () => {
+    const a = 'Laut Tagesschau steigt der Leitzins [1][2]. Mehr unter https://www.tagesschau.de/wirtschaft (Stand heute) [3, 4].'
+    expect(sanitizeForGlasses(a)).toBe('Laut Tagesschau steigt der Leitzins. Mehr unter (Stand heute).')
+    expect(sanitizeForGlasses('Quelle: (https://x.y/z)')).toBe('Quelle:')
+    expect(sanitizeForGlasses('[[MERKEN: Hund heißt Rex]]')).toBe('[[MERKEN: Hund heißt Rex]]')
+  })
 })
 
 describe('pcm', () => {

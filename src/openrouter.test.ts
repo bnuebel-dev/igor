@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chat, errorDetail, OpenRouterError, transcribe } from './openrouter.ts'
+import { chat, errorDetail, OpenRouterError, searchCount, transcribe } from './openrouter.ts'
 
 type Call = { url: string; body: Record<string, any> }
 
@@ -66,6 +66,40 @@ describe('chat: thinking off', () => {
     stubFetch([ok({ choices: [{ message: { content: 'Guten Tag, Boss, Ihr treuer' }, finish_reason: 'length' }] })])
     const r = await chat('sk-or-x', 'vendor/model-d', msgs, { stream: false })
     expect(r.finishReason).toBe('length')
+  })
+})
+
+describe('chat: web search', () => {
+  it('adds the OpenRouter search tool only when asked', async () => {
+    const calls = stubFetch([ok(answer), ok(answer)])
+    await chat('sk-or-x', 'vendor/search-a', msgs, { stream: false, webSearch: true })
+    await chat('sk-or-x', 'vendor/search-a', msgs, { stream: false })
+    expect(calls[0]!.body.tools).toEqual([expect.objectContaining({ type: 'openrouter:web_search' })])
+    expect(calls[0]!.body.tools[0].parameters.max_uses).toBeLessThanOrEqual(3)
+    expect('tools' in calls[1]!.body).toBe(false)
+  })
+
+  it('answers without search when the model cannot use tools, and remembers that', async () => {
+    const calls = stubFetch([fail(404, 'No endpoints found that support tool use.'), ok(answer), ok(answer)])
+    const first = await chat('sk-or-x', 'vendor/search-b', msgs, { stream: false, webSearch: true })
+    expect(first).toMatchObject({ text: 'Zu Diensten, Boss.', searchRefused: true })
+    expect('tools' in calls[1]!.body).toBe(false)
+
+    const second = await chat('sk-or-x', 'vendor/search-b', msgs, { stream: false, webSearch: true })
+    expect(calls).toHaveLength(3)
+    expect('tools' in calls[2]!.body).toBe(false)
+    expect(second.searchRefused).toBe(true)
+  })
+
+  it('does not swallow other errors', async () => {
+    stubFetch([fail(402, 'Insufficient credits')])
+    await expect(chat('sk-or-x', 'vendor/search-c', msgs, { stream: false, webSearch: true })).rejects.toMatchObject({ status: 402 })
+  })
+
+  it('counts the searches from the usage block', () => {
+    expect(searchCount({ server_tool_use: { web_search_requests: 2 } })).toBe(2)
+    expect(searchCount({ cost: 0.01 })).toBe(0)
+    expect(searchCount(undefined)).toBe(0)
   })
 })
 

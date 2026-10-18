@@ -12,6 +12,8 @@ export type Settings = {
   language: string
   /** Empty = the built-in persona. */
   persona: string
+  /** Let the model search the web (OpenRouter server tool) when a question needs current information. */
+  webSearch: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -23,6 +25,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sttFormat: 'wav',
   language: 'de',
   persona: '',
+  webSearch: true,
 }
 
 const SETTINGS_KEY = 'igor.settings'
