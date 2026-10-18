@@ -16,7 +16,8 @@ export const DEFAULT_SETTINGS: Settings = {
   // Empty = not chosen yet: the first entry of the curated list applies.
   chatModel: '',
   sttModel: '',
-  sttFormat: 'pcm',
+  // Measured on the glasses: the Whisper provider rejects headerless pcm (HTTP 400) but takes wav.
+  sttFormat: 'wav',
   language: 'de',
 }
 

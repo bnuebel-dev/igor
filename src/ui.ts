@@ -59,7 +59,7 @@ export function mountUi(onAction: (action: Action) => void) {
         <input id="sttModelCustom" class="custom" placeholder="Modell-ID" autocomplete="off" hidden>
         <p id="sttModelInfo" class="info"></p>
         <div class="row">
-          <label>Audioformat<select id="sttFormat"><option value="pcm">pcm (roh)</option><option value="wav">wav</option></select></label>
+          <label>Audioformat<select id="sttFormat"><option value="wav">wav (empfohlen)</option><option value="pcm">pcm (roh, oft abgelehnt)</option></select></label>
           <label>Sprache<input id="language" maxlength="5"></label>
         </div>
         <button data-action="save" class="primary">Speichern</button>
