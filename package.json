@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",
-    "@evenrealities/pretext": "^0.1.4"
+    "@evenrealities/pretext": "^0.1.4",
+    "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
     "@evenrealities/evenhub-cli": "0.1.14",

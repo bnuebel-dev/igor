@@ -124,6 +124,20 @@ export function mountPhone(h: Handlers) {
         <button data-action="mic">5 Sprachtest (5 s sprechen)</button>
         <button data-action="search">6 Websuche</button>
         <p class="hint">Test 5 spricht in die Brille (im Browser: ins Mikrofon) und prüft Mikrofon, Erkennung und Antwort. Test 6 fragt nach den Nachrichten des Tages und zeigt, ob das Modell gesucht hat.</p>
+        <h2>Machbarkeit Unterlagen</h2>
+        <div class="grid">
+          <button data-action="probe:files">A Dateien wählen</button>
+          <button data-action="probe:folder">A Ordner wählen</button>
+          <button data-action="probe:storage">B Speicher</button>
+          <button data-action="probe:pdf">C PDF wählen</button>
+          <button data-action="probe:pcloud">D pCloud erreichbar?</button>
+          <button data-action="probe:login">E pCloud anmelden</button>
+        </div>
+        <label>pCloud Client-ID (für E)<input id="pcloudClient" autocomplete="off" placeholder="aus pCloud „My apps“"></label>
+        <p class="hint">A: Wählen Sie ein paar MD-Dateien und ein PDF, gern aus pCloud. B dauert bis zu einer Minute. E verlässt kurz die Seite und kommt nach der pCloud-Anmeldung zurück.</p>
+        <input type="file" id="probeFiles" multiple hidden>
+        <input type="file" id="probeFolder" webkitdirectory multiple hidden>
+        <input type="file" id="probePdfFile" accept="application/pdf,.pdf" hidden>
         <h2>Protokoll</h2>
         <button data-action="copy">Protokoll kopieren</button>
         <ol id="log"></ol>
@@ -145,6 +159,7 @@ export function mountPhone(h: Handlers) {
   app.addEventListener('change', e => {
     const id = (e.target as HTMLElement).id
     if (id === 'chatModel' || id === 'sttModel') syncPicker(id)
+    if (id === 'probeFiles' || id === 'probeFolder' || id === 'probePdfFile') h.action('probe:picked', { id })
     if (id === 'topicSelect') h.action('topic:select', { id: (e.target as HTMLSelectElement).value })
   })
   app.addEventListener('toggle', e => {

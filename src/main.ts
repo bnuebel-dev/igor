@@ -14,6 +14,7 @@ import {
 } from './openrouter.ts'
 import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
 import { germanNow } from './prompt.ts'
+import { checkMarkers, describeSelection, finishPcloudLogin, probePcloudApi, probePdf, probeStorage, startPcloudLogin } from './probe.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
@@ -206,6 +207,7 @@ if (glasses) {
 assistant.start()
 updateInfo()
 void loadModelLists()
+void probeStartup()
 
 /** The Even app injects its WebView handler; a plain browser never gets it. */
 async function connectBridge(): Promise<EvenAppBridge | null> {
@@ -332,6 +334,62 @@ const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream' | 'search', ()
 let busy = false
 let resetArmed = 0
 
+// ---- Feasibility probes for the document library ---------------------------------------------
+
+const PCLOUD_CLIENT_KEY = 'igor.pcloud.client'
+const plog = (level: 'info' | 'ok' | 'fail', msg: string) => phone.log(level, msg)
+
+function probeAction(name: string, data: Record<string, string>) {
+  // The file dialogs must open inside the click, before any await.
+  const pick = { 'probe:files': 'probeFiles', 'probe:folder': 'probeFolder', 'probe:pdf': 'probePdfFile' }[name]
+  if (pick) {
+    const input = document.getElementById(pick) as HTMLInputElement
+    input.value = ''
+    input.click()
+    return
+  }
+  if (name === 'probe:picked') {
+    const input = document.getElementById(data.id!) as HTMLInputElement
+    void (async () => {
+      const files = await describeSelection(input.files, data.id === 'probeFolder' ? 'Ordner' : 'Dateien', plog)
+      const pdf = files.find(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf')
+      if (pdf) await probePdf(pdf, plog)
+      else if (data.id === 'probePdfFile') plog('fail', 'C: keine PDF-Datei ausgewählt')
+    })()
+    return
+  }
+  if (name === 'probe:storage') return void runBusy(() => probeStorage(kv, plog))
+  if (name === 'probe:pcloud') return void runBusy(() => probePcloudApi(plog))
+  if (name === 'probe:login') {
+    const client = (document.getElementById('pcloudClient') as HTMLInputElement).value.trim()
+    void kv.set(PCLOUD_CLIENT_KEY, client).finally(() => startPcloudLogin(client, plog))
+  }
+}
+
+async function runBusy(fn: () => Promise<void>) {
+  if (busy) return
+  busy = true
+  phone.setBusy(true)
+  try {
+    await fn()
+  } catch (err) {
+    plog('fail', describe(err))
+  } finally {
+    busy = false
+    phone.setBusy(false)
+  }
+}
+
+async function probeStartup() {
+  try {
+    ;(document.getElementById('pcloudClient') as HTMLInputElement).value = await kv.get(PCLOUD_CLIENT_KEY)
+    await checkMarkers(kv, plog)
+    await finishPcloudLogin(kv, plog)
+  } catch (err) {
+    plog('fail', `Machbarkeit beim Start: ${describe(err)}`)
+  }
+}
+
 async function onAction(name: string, data: Record<string, string>) {
   if (name === 'copy') {
     try {
@@ -353,6 +411,7 @@ async function onAction(name: string, data: Record<string, string>) {
   if (name === 'newChat') return assistant.newChat()
   if (name === 'persona:reset') return phone.resetPersona()
   if (name === 'mic') return voiceTest()
+  if (name.startsWith('probe:')) return probeAction(name, data)
 
   if (busy) return
   busy = true
