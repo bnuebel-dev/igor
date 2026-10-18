@@ -113,6 +113,7 @@ function costText(usage?: Usage): string {
   return typeof usage.cost === 'number' ? `${tokens}, ${usage.cost.toFixed(5)} $` : tokens
 }
 
+const formatNote = (r: { format: string; fellBack: boolean }) => (r.fellBack ? `${r.format}, pcm abgelehnt` : r.format)
 const ms = (n: number) => `${Math.round(n)} ms`
 
 // With the local mock API any sk-or- key is accepted, so tests run without a real key.
@@ -174,7 +175,7 @@ async function testBrowserMic() {
   ui.setStatus(glasses ? 'Brille verbunden' : 'Nur Browser, keine Brille', glasses ? 'ok' : 'warn')
   ui.log('info', `Aufnahme: ${(pcm.length / 32000).toFixed(1)} s, ${pcm.length} Bytes (16 kHz, mono)`)
   const stt = await transcribe(key, settings.sttModel, pcm, { format: settings.sttFormat, language: settings.language || undefined })
-  ui.log('ok', `5 Spracherkennung ${settings.sttModel} (${settings.sttFormat}): ${ms(stt.totalMs)}, "${stt.text}"`)
+  ui.log('ok', `5 Spracherkennung ${settings.sttModel} (${formatNote(stt)}): ${ms(stt.totalMs)}, "${stt.text}"`)
 }
 
 const VOICE_TEST_SECONDS = 5
@@ -287,7 +288,7 @@ async function stopRecording(cancel = false) {
       format: settings.sttFormat,
       language: settings.language || undefined,
     })
-    ui.log('ok', `5 Spracherkennung ${settings.sttModel} (${settings.sttFormat}): ${ms(stt.totalMs)}, "${stt.text}"`)
+    ui.log('ok', `5 Spracherkennung ${settings.sttModel} (${formatNote(stt)}): ${ms(stt.totalMs)}, "${stt.text}"`)
     if (!stt.text) return resetIdle('Ich habe nichts verstanden, Boss.')
     mode = 'idle'
     await answer(stt.text)

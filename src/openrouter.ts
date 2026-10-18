@@ -45,6 +45,18 @@ function describeStatus(status: number): string {
   }
 }
 
+/**
+ * OpenRouter wraps provider failures as "Provider returned error" and puts the
+ * real reason into error.metadata (provider_name, raw). Surface both.
+ */
+export function errorDetail(body: any): string {
+  const err = body?.error
+  if (!err) return JSON.stringify(body)
+  const meta = err.metadata ?? {}
+  const raw = typeof meta.raw === 'string' ? meta.raw : meta.raw ? JSON.stringify(meta.raw) : ''
+  return [err.message, meta.provider_name && `Anbieter ${meta.provider_name}`, raw].filter(Boolean).join(' | ')
+}
+
 async function request(path: string, init: RequestInit & { key?: string } = {}): Promise<Response> {
   const headers = new Headers(init.headers)
   if (init.key) headers.set('Authorization', `Bearer ${init.key}`)
@@ -57,14 +69,14 @@ async function request(path: string, init: RequestInit & { key?: string } = {}):
     throw new OpenRouterError('Netzwerk oder CORS blockiert', null, String(err))
   }
   if (!res.ok) {
-    let detail = ''
+    const raw = await res.text().catch(() => '')
+    let detail = raw
     try {
-      const body = await res.json()
-      detail = body?.error?.message ?? JSON.stringify(body)
+      detail = errorDetail(JSON.parse(raw))
     } catch {
-      detail = await res.text().catch(() => '')
+      // not JSON: keep the raw text
     }
-    throw new OpenRouterError(describeStatus(res.status), res.status, detail)
+    throw new OpenRouterError(describeStatus(res.status), res.status, detail.slice(0, 400))
   }
   return res
 }
@@ -208,20 +220,28 @@ export async function chat(
   return { text, firstTokenMs, headersMs, totalMs: performance.now() - started, usage, streamed: true, reads, finishReason, thinkingOff }
 }
 
-export type TranscriptionResult = { text: string; totalMs: number; usage?: Usage }
+export type AudioFormat = 'pcm' | 'wav'
 
-/**
- * Speech-to-text. `pcm` sends the glasses audio unchanged (OpenRouter defines
- * "pcm" as headerless s16le mono 16 kHz); `wav` adds a header as fallback.
- */
-export async function transcribe(
+export type TranscriptionResult = {
+  text: string
+  totalMs: number
+  usage?: Usage
+  /** Format that was accepted. */
+  format: AudioFormat
+  /** True when `pcm` was rejected and the same audio went through as `wav`. */
+  fellBack: boolean
+}
+
+// Models that rejected headerless PCM; they go straight to WAV afterwards.
+const wavOnly = new Set<string>()
+
+async function transcribeOnce(
   key: string,
   model: string,
   pcm: Uint8Array,
-  opts: { format?: 'pcm' | 'wav'; language?: string; signal?: AbortSignal } = {},
-): Promise<TranscriptionResult> {
-  const started = performance.now()
-  const format = opts.format ?? 'pcm'
+  format: AudioFormat,
+  opts: { language?: string; signal?: AbortSignal },
+): Promise<{ text: string; usage?: Usage }> {
   const bytes = format === 'wav' ? pcmToWav(pcm) : pcm
   const res = await request('/audio/transcriptions', {
     key,
@@ -234,5 +254,36 @@ export async function transcribe(
     }),
   })
   const body = await res.json()
-  return { text: (body.text ?? '').trim(), totalMs: performance.now() - started, usage: body.usage }
+  return { text: (body.text ?? '').trim(), usage: body.usage }
+}
+
+/**
+ * Speech-to-text. `pcm` sends the glasses audio unchanged (OpenRouter defines
+ * "pcm" as headerless s16le mono 16 kHz). Not every provider accepts that, so a
+ * 400 on `pcm` is retried once as `wav` (same audio with a 44-byte header).
+ */
+export async function transcribe(
+  key: string,
+  model: string,
+  pcm: Uint8Array,
+  opts: { format?: AudioFormat; language?: string; signal?: AbortSignal } = {},
+): Promise<TranscriptionResult> {
+  const started = performance.now()
+  const first: AudioFormat = opts.format === 'wav' || wavOnly.has(model) ? 'wav' : 'pcm'
+  try {
+    const r = await transcribeOnce(key, model, pcm, first, opts)
+    return { ...r, totalMs: performance.now() - started, format: first, fellBack: first !== (opts.format ?? 'pcm') }
+  } catch (err) {
+    if (first === 'wav' || !(err instanceof OpenRouterError) || err.status !== 400) throw err
+    try {
+      const r = await transcribeOnce(key, model, pcm, 'wav', opts)
+      wavOnly.add(model)
+      return { ...r, totalMs: performance.now() - started, format: 'wav', fellBack: true }
+    } catch (second) {
+      if (second instanceof OpenRouterError) {
+        throw new OpenRouterError(second.message, second.status, `pcm: ${err.detail} | wav: ${second.detail}`)
+      }
+      throw second
+    }
+  }
 }

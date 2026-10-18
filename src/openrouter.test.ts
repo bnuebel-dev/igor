@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { chat, OpenRouterError } from './openrouter.ts'
+import { chat, errorDetail, OpenRouterError, transcribe } from './openrouter.ts'
 
 type Call = { url: string; body: Record<string, any> }
 
@@ -110,5 +110,76 @@ describe('chat: streaming diagnostics', () => {
   it('raises mid-stream errors', async () => {
     stubFetch([streamOf(sse('{"error":{"message":"provider failed"}}'))])
     await expect(chat('sk-or-x', 'vendor/model-g', msgs)).rejects.toBeInstanceOf(OpenRouterError)
+  })
+})
+
+describe('transcribe', () => {
+  const pcm = new Uint8Array(3200) // 0.1 s of silence
+  const sent = (c: Call) => Uint8Array.from(atob(c.body.input_audio.data), ch => ch.charCodeAt(0))
+  const ascii = (b: Uint8Array, from: number, to: number) => String.fromCharCode(...b.subarray(from, to))
+
+  it('sends the glasses audio unchanged as pcm', async () => {
+    const calls = stubFetch([ok({ text: ' Hallo Igor ', usage: { cost: 0.001 } })])
+    const r = await transcribe('sk-or-x', 'vendor/stt-a', pcm, { language: 'de' })
+    expect(calls[0]!.url).toContain('/audio/transcriptions')
+    expect(calls[0]!.body).toMatchObject({ model: 'vendor/stt-a', language: 'de', input_audio: { format: 'pcm' } })
+    expect(sent(calls[0]!)).toEqual(pcm)
+    expect(r).toMatchObject({ text: 'Hallo Igor', format: 'pcm', fellBack: false })
+  })
+
+  it('retries as wav when pcm is rejected, then goes straight to wav for that model', async () => {
+    const calls = stubFetch([fail(400, 'Provider returned error'), ok({ text: 'Hallo' }), ok({ text: 'Nochmal' })])
+    const r = await transcribe('sk-or-x', 'vendor/stt-b', pcm)
+    expect(r).toMatchObject({ text: 'Hallo', format: 'wav', fellBack: true })
+    expect(calls).toHaveLength(2)
+    const wav = sent(calls[1]!)
+    expect(calls[1]!.body.input_audio.format).toBe('wav')
+    expect(ascii(wav, 0, 4)).toBe('RIFF')
+    expect(wav.length).toBe(pcm.length + 44)
+
+    const again = await transcribe('sk-or-x', 'vendor/stt-b', pcm)
+    expect(calls).toHaveLength(3) // no pcm probe this time
+    expect(calls[2]!.body.input_audio.format).toBe('wav')
+    expect(again.fellBack).toBe(true)
+  })
+
+  it('keeps both reasons when pcm and wav fail', async () => {
+    stubFetch([fail(400, 'pcm not supported'), fail(400, 'file too short')])
+    const err = await transcribe('sk-or-x', 'vendor/stt-c', pcm).catch(e => e)
+    expect(err).toBeInstanceOf(OpenRouterError)
+    expect(err.detail).toBe('pcm: pcm not supported | wav: file too short')
+  })
+
+  it('does not retry on other errors such as a bad key', async () => {
+    const calls = stubFetch([fail(401, 'No auth credentials found')])
+    await expect(transcribe('bad', 'vendor/stt-d', pcm)).rejects.toMatchObject({ status: 401 })
+    expect(calls).toHaveLength(1)
+  })
+
+  it('goes directly to wav when wav is chosen', async () => {
+    const calls = stubFetch([ok({ text: 'Hallo' })])
+    const r = await transcribe('sk-or-x', 'vendor/stt-e', pcm, { format: 'wav' })
+    expect(calls).toHaveLength(1)
+    expect(r).toMatchObject({ format: 'wav', fellBack: false })
+  })
+})
+
+describe('errorDetail', () => {
+  it('shows the provider and its real reason', () => {
+    const body = {
+      error: {
+        message: 'Provider returned error',
+        code: 400,
+        metadata: { provider_name: 'Groq', raw: '{"error":{"message":"file must be one of: flac, mp3, wav"}}' },
+      },
+    }
+    expect(errorDetail(body)).toBe(
+      'Provider returned error | Anbieter Groq | {"error":{"message":"file must be one of: flac, mp3, wav"}}',
+    )
+  })
+
+  it('handles plain errors and unknown shapes', () => {
+    expect(errorDetail({ error: { message: 'No auth credentials found' } })).toBe('No auth credentials found')
+    expect(errorDetail({ nope: 1 })).toBe('{"nope":1}')
   })
 })
