@@ -1,0 +1,21 @@
+{
+  "package_id": "com.bnuebel.igor",
+  "edition": "202601",
+  "name": "IGOR",
+  "version": "0.0.1",
+  "min_app_version": "2.2.10",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "g2-microphone",
+      "desc": "IGOR hört über das Brillenmikrofon zu, solange du die Aufnahme per Tippen gestartet hast."
+    },
+    {
+      "name": "network",
+      "desc": "Sprache und Fragen gehen an OpenRouter, um sie zu erkennen und zu beantworten.",
+      "whitelist": ["https://openrouter.ai"]
+    }
+  ],
+  "supported_languages": ["de", "en"]
+}
