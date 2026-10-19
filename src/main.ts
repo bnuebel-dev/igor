@@ -28,7 +28,7 @@ import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, sa
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.5.0'
+const VERSION = '0.5.1'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -498,7 +498,8 @@ async function syncNow() {
     await saveSyncConfig(kv, pcCfg)
     pcMessage = ''
     plog(report.failed.length ? 'fail' : 'ok', `pCloud ${folder.name}: ${describeReport(report)} (${ms(performance.now() - t)})`)
-    for (const f of report.failed) plog('fail', `   ${f}`)
+    for (const f of report.failed.slice(0, 8)) plog('fail', `   ${f}`)
+    if (report.failed.length > 8) plog('fail', `   … und ${report.failed.length - 8} weitere`)
     for (const s of report.skipped) plog('info', `   übersprungen: ${s}`)
   } catch (err) {
     pcMessage = `Abgleich fehlgeschlagen: ${describe(err)}`

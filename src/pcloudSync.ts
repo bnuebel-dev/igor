@@ -12,7 +12,8 @@ export function flatten(tree: any, rootName: string): { files: RemoteFile[]; ski
   const walk = (node: any, prefix: string) => {
     for (const c of node?.contents ?? []) {
       if (c.isfolder) {
-        walk(c, `${prefix}/${c.name}`)
+        // .trash, .obsidian, .claude and the like are tool data, not documents.
+        if (!String(c.name).startsWith('.')) walk(c, `${prefix}/${c.name}`)
       } else if (kindOf(c.name)) {
         const path = `${prefix}/${c.name}`
         if ((c.size ?? 0) > MAX_FILE_BYTES) skipped.push(`${path} (${Math.round(c.size / 1024 / 1024)} MB, zu groß)`)
@@ -63,6 +64,9 @@ export type SyncDeps = {
 
 export type SyncReport = { added: number; updated: number; removed: number; same: number; failed: string[]; skipped: string[] }
 
+/** Consecutive failed downloads after which the run stops instead of repeating the same error for every file. */
+export const FAIL_LIMIT = 5
+
 const isAuthError = (err: unknown) => (err as { code?: number })?.code === 1000 || (err as { code?: number })?.code === 2000
 
 /** Mirrors the folder into the library; one bad file is reported and does not stop the others. */
@@ -74,16 +78,23 @@ export async function runSync(folder: { folderid: number; name: string }, d: Syn
   const todo = [...plan.add.map(f => ({ f, isNew: true })), ...plan.update.map(f => ({ f, isNew: false }))]
 
   let done = 0
+  let failedInARow = 0
   for (const { f, isNew } of todo) {
+    if (failedInARow >= FAIL_LIMIT) {
+      throw new Error(`${FAIL_LIMIT} Dateien hintereinander fehlgeschlagen, Abbruch. Erster Fehler: ${report.failed[0]}`)
+    }
     d.progress(`Lade ${++done} von ${todo.length}: ${f.name}`)
     try {
       const raw = await d.read(f.name, f.path, await d.download(f.fileid))
       const r = await d.library.add(raw, { fileid: f.fileid, hash: f.hash })
-      if (r.ok) report[isNew ? 'added' : 'updated']++
-      else report.failed.push(r.reason)
+      if (r.ok) {
+        report[isNew ? 'added' : 'updated']++
+        failedInARow = 0
+      } else report.failed.push(r.reason) // an empty or scanned file is not a connection problem
     } catch (err) {
       if (isAuthError(err)) throw err
       report.failed.push(`${f.path}: ${(err as Error).message}`)
+      failedInARow++
     }
   }
   for (const doc of plan.remove) if (await d.library.remove(doc.id)) report.removed++

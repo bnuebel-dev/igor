@@ -136,3 +136,42 @@ describe('runSync', () => {
     expect(report.added).toBe(0)
   })
 })
+
+import { FAIL_LIMIT } from './pcloudSync.ts'
+
+describe('runSync safeguards', () => {
+  it('skips hidden folders such as .trash', () => {
+    const t = { name: 'x', contents: [{ name: '.trash', isfolder: true, contents: [{ name: 'alt.md', fileid: 1, hash: 1, size: 1 }] }, { name: 'ok.md', fileid: 2, hash: 2, size: 1 }] }
+    expect(flatten(t, 'x').files.map(f => f.path)).toEqual(['x/ok.md'])
+  })
+
+  it('stops after a run of failed downloads instead of repeating the same error', async () => {
+    const many = { name: 'x', contents: Array.from({ length: 30 }, (_, i) => ({ name: `n${i}.md`, fileid: i, hash: i, size: 1 })) }
+    let calls = 0
+    const deps: SyncDeps = {
+      listTree: async () => many,
+      download: async () => {
+        calls++
+        throw new Error('Invalid link referer')
+      },
+      read: async () => ({ kind: 'md', name: 'a', path: 'a', text: '' }),
+      library: { list: () => [], add: async () => ({ ok: true }), remove: async () => true },
+      progress: () => {},
+    }
+    await expect(runSync({ folderid: 1, name: 'x' }, deps)).rejects.toThrow(/hintereinander fehlgeschlagen.*Invalid link referer/)
+    expect(calls).toBe(FAIL_LIMIT)
+  })
+
+  it('a refused document in between does not count as a connection problem', async () => {
+    const many = { name: 'x', contents: Array.from({ length: 12 }, (_, i) => ({ name: `n${i}.md`, fileid: i, hash: i, size: 1 })) }
+    const deps: SyncDeps = {
+      listTree: async () => many,
+      download: async () => new ArrayBuffer(1),
+      read: async (name, path) => ({ kind: 'md', name, path, text: '' }),
+      library: { list: () => [], add: async raw => ({ ok: false, reason: `${raw.name}: kein Text` }), remove: async () => true },
+      progress: () => {},
+    }
+    const report = await runSync({ folderid: 1, name: 'x' }, deps)
+    expect(report.failed).toHaveLength(12)
+  })
+})

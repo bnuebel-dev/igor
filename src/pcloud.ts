@@ -138,16 +138,75 @@ export async function listTree(login: PcloudLogin, folderid: number): Promise<an
   return (await api(login, 'listfolder', { folderid, recursive: 1 })).metadata
 }
 
-/** File content; the download link is short-lived, so it is fetched right before the download. */
-export async function download(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
-  const link = await api(login, 'getfilelink', { fileid })
-  const url = `https://${link.hosts[0]}${link.path}`
-  let res: Response
+const READ_CHUNK = 4 * 1024 * 1024
+
+/**
+ * Reads a file through the file_open / file_read calls of the API itself. pCloud refuses
+ * getfilelink for pages outside pcloud.com ("Invalid link referer", error 7010), but
+ * these calls answer from the same server as the folder listing and need no link.
+ */
+async function readViaApi(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
+  const { fd } = await api(login, 'file_open', { flags: 0, fileid })
   try {
-    res = await fetch(url)
-  } catch (err) {
-    throw new PcloudError(`Download blockiert (${(err as Error).message}); vermutlich fehlt dem Dateiserver die Freigabe für Browser`, null)
+    let size = Infinity
+    try {
+      size = Number((await api(login, 'file_size', { fd })).size)
+    } catch {
+      // without the size the loop ends at the first empty read
+    }
+    const chunks: Uint8Array[] = []
+    let total = 0
+    while (total < size) {
+      const url = new URL(`${login.host}/file_read`)
+      url.searchParams.set('access_token', login.token)
+      url.searchParams.set('fd', String(fd))
+      url.searchParams.set('count', String(READ_CHUNK))
+      let res: Response
+      try {
+        res = await fetch(url)
+      } catch (err) {
+        throw new PcloudError(`pCloud nicht erreichbar (${(err as Error).message})`, null)
+      }
+      // Data comes back raw; a JSON answer means an error.
+      if ((res.headers.get('content-type') ?? '').includes('json')) {
+        const body = await res.json()
+        throw new PcloudError(describeCode(body.result, body.error ?? ''), body.result)
+      }
+      const part = new Uint8Array(await res.arrayBuffer())
+      if (!part.length) break
+      chunks.push(part)
+      total += part.length
+    }
+    const out = new Uint8Array(total)
+    let at = 0
+    for (const c of chunks) {
+      out.set(c, at)
+      at += c.length
+    }
+    return out.buffer
+  } finally {
+    await api(login, 'file_close', { fd }).catch(() => undefined)
   }
+}
+
+/** The download link route, which pCloud allows only on its own pages; kept as a fallback. */
+async function readViaLink(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
+  const link = await api(login, 'getfilelink', { fileid })
+  const res = await fetch(`https://${link.hosts[0]}${link.path}`)
   if (!res.ok) throw new PcloudError(`Download: HTTP ${res.status}`, null)
   return res.arrayBuffer()
+}
+
+export async function download(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
+  try {
+    return await readViaApi(login, fileid)
+  } catch (err) {
+    // A missing file or an expired login will not get better with another route.
+    if (!(err instanceof PcloudError) || [1000, 2000, 2009].includes(err.code ?? 0)) throw err
+    try {
+      return await readViaLink(login, fileid)
+    } catch (second) {
+      throw new PcloudError(`${err.message} (Ersatzweg: ${(second as Error).message})`, err.code)
+    }
+  }
 }

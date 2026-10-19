@@ -34,4 +34,5 @@ export const MEMORY_RULES = [
   '[[MERKEN: kurzer Satz]]. Der Satz ist knapp und sachlich ("Hund heißt Rex", "Plant Urlaub im Mai") und',
   'enthält keine Anrede. Tun Sie das höchstens einmal pro Antwort, nie bei Smalltalk,',
   'Tagesfragen oder Dingen, die schon in den Notizen stehen, und erwähnen Sie die Zeile im Text nicht.',
+  'Erfinden Sie nie etwas über die Person, Projekte oder Dokumente des Nutzers: Was nicht in den Notizen oder Auszügen steht, wissen Sie nicht, und das sagen Sie.',
 ].join(' ')
