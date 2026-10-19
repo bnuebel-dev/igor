@@ -14,21 +14,15 @@ import {
 } from './openrouter.ts'
 import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
 import { germanNow } from './prompt.ts'
-import { readBuffer, readFile } from './ingest.ts'
+import { isZip, readBuffer, readFile, readZipBuffer } from './ingest.ts'
 import { LibraryStore } from './libraryStore.ts'
-import { MAX_LIBRARY_CHARS } from './library.ts'
-import { checkMarkers, describeSelection, probePcloudApi, probePdf, probeStorage } from './probe.ts'
-import {
-  DEFAULT_CLIENT_ID, download as pcDownload, probeDownload, refererInUse, forgetLogin, listSubfolders, listTree, loadSyncConfig, restoreLogin, saveSyncConfig, startPcloudLogin,
-  type FolderEntry, type PcloudLogin, type SyncConfig,
-} from './pcloud.ts'
-import { describeReport, flatten, runSync } from './pcloudSync.ts'
+import { MAX_LIBRARY_CHARS, type RawDoc } from './library.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.5.4'
+const VERSION = '0.6.0'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -166,24 +160,60 @@ function renderLibrary() {
   phone.renderLibrary(
     docs,
     topics,
-    docs.length ? `${docs.length} Dokument${docs.length > 1 ? 'e' : ''}, ${library.chunkCount} Abschnitte, ${used}k von ${MAX_LIBRARY_CHARS / 1000}k Zeichen` : '',
+    [libResult, docs.length ? `${docs.length} Dokument${docs.length > 1 ? 'e' : ''}, ${library.chunkCount} Abschnitte, ${used}k von ${MAX_LIBRARY_CHARS / 1000}k Zeichen` : ''].filter(Boolean).join(' · '),
+    Date.now() - libClearArmed < 5000,
   )
 }
 library.subscribe(renderLibrary)
 store.subscribe(renderLibrary)
-const libraryReady = library.load().then(renderLibrary, err => phone.log('fail', `Unterlagen laden: ${describe(err)}`))
+void library.load().then(renderLibrary, err => phone.log('fail', `Unterlagen laden: ${describe(err)}`))
+
+/** Result of the last add, shown in front of the size summary until the next one. */
+let libResult = ''
+let libClearArmed = 0
 
 async function addFiles(files: File[]) {
-  for (const file of files) {
+  const tally = { added: 0, replaced: 0, failed: [] as string[], skipped: [] as string[] }
+  const t = performance.now()
+  const addOne = async (path: string, read: () => Promise<RawDoc>) => {
     try {
-      const t = performance.now()
-      const r = await library.add(await readFile(file))
-      if (r.ok) phone.log('ok', `Unterlagen: ${r.doc.path} ${r.replaced ? 'ersetzt' : 'hinzugefügt'} (${ms(performance.now() - t)})`)
-      else phone.log('fail', `Unterlagen: ${r.reason}`)
+      const r = await library.add(await read(), { batch: true })
+      if (!r.ok) tally.failed.push(r.reason)
+      else if (r.replaced) tally.replaced++
+      else tally.added++
     } catch (err) {
-      phone.log('fail', `Unterlagen: ${file.name}: ${describe(err)}`)
+      tally.failed.push(`${path}: ${describe(err)}`)
     }
   }
+  for (const file of files) {
+    try {
+      if (isZip(file.name)) {
+        phone.setLibraryInfo(`Öffne ${file.name} …`)
+        const zip = await readZipBuffer(await file.arrayBuffer())
+        tally.skipped.push(...zip.skipped)
+        let n = 0
+        for (const e of zip.entries) {
+          phone.setLibraryInfo(`${file.name}: ${++n} von ${zip.entries.length} · ${e.name}`)
+          await addOne(e.path, () => readBuffer(e.name, e.path, e.data))
+        }
+        if (!zip.entries.length) tally.failed.push(`${file.name}: keine MD-, TXT- oder PDF-Dateien darin`)
+      } else {
+        phone.setLibraryInfo(`Lese ${file.name} …`)
+        await addOne(file.name, () => readFile(file))
+      }
+    } catch (err) {
+      tally.failed.push(`${file.name}: ${describe(err)}`)
+    }
+  }
+  phone.setLibraryInfo('Speichere …')
+  if (!(await library.commit())) tally.failed.push('Das Verzeichnis konnte nicht gespeichert werden; beim nächsten Start fehlen die neuen Dokumente.')
+  const parts = [`${tally.added} neu`, tally.replaced && `${tally.replaced} ersetzt`, tally.failed.length && `${tally.failed.length} fehlgeschlagen`, tally.skipped.length && `${tally.skipped.length} übersprungen`]
+  libResult = `Zuletzt: ${parts.filter(Boolean).join(', ')}`
+  phone.log(tally.failed.length ? 'fail' : 'ok', `Unterlagen: ${parts.filter(Boolean).join(', ')} (${ms(performance.now() - t)})`)
+  for (const f of tally.failed.slice(0, 8)) phone.log('fail', `   ${f}`)
+  if (tally.failed.length > 8) phone.log('fail', `   … und ${tally.failed.length - 8} weitere`)
+  for (const f of tally.skipped.slice(0, 5)) phone.log('info', `   übersprungen: ${f}`)
+  renderLibrary()
 }
 
 function libraryAction(name: string, d: Record<string, string>): boolean {
@@ -194,9 +224,19 @@ function libraryAction(name: string, d: Record<string, string>): boolean {
     input.click() // must happen inside the tap, before any await
   } else if (name === 'lib:picked') {
     const files = [...((document.getElementById('libFiles') as HTMLInputElement).files ?? [])]
-    void runBusy(() => addFiles(files))
+    if (files.length) void runBusy(() => addFiles(files))
   } else if (name === 'lib:remove') {
     void library.remove(d.id!).then(ok => ok || phone.log('fail', 'Unterlagen: Löschen vom Speicher abgelehnt'))
+  } else if (name === 'lib:clear') {
+    if (Date.now() - libClearArmed < 5000) {
+      libClearArmed = 0
+      libResult = ''
+      void library.clear().then(ok => (ok ? phone.log('ok', 'Unterlagen: alles gelöscht') : phone.log('fail', 'Unterlagen: Löschen vom Speicher abgelehnt')))
+    } else {
+      libClearArmed = Date.now()
+      renderLibrary()
+      setTimeout(renderLibrary, 5100) // the button returns to its normal label
+    }
   } else if (name === 'lib:topic') {
     void library.setTopic(d.id!, d.topic || null)
   } else if (name === 'lib:search') {
@@ -267,8 +307,7 @@ if (glasses) {
 assistant.start()
 updateInfo()
 void loadModelLists()
-void probeStartup()
-void pcloudStartup().catch(err => plog('fail', `pCloud: ${describe(err)}`))
+void forgetOldKeys()
 
 /** The Even app injects its WebView handler; a plain browser never gets it. */
 async function connectBridge(): Promise<EvenAppBridge | null> {
@@ -395,41 +434,6 @@ const tests: Record<'cors' | 'key' | 'chat-plain' | 'chat-stream' | 'search', ()
 let busy = false
 let resetArmed = 0
 
-// ---- Feasibility probes for the document library ---------------------------------------------
-
-const PCLOUD_CLIENT_KEY = 'igor.pcloud.client'
-// A function declaration, so the startup code above can use it before this line runs.
-function plog(level: 'info' | 'ok' | 'fail', msg: string) {
-  phone.log(level, msg)
-}
-
-function probeAction(name: string, data: Record<string, string>) {
-  // The file dialogs must open inside the click, before any await.
-  const pick = { 'probe:files': 'probeFiles', 'probe:folder': 'probeFolder', 'probe:pdf': 'probePdfFile' }[name]
-  if (pick) {
-    const input = document.getElementById(pick) as HTMLInputElement
-    input.value = ''
-    input.click()
-    return
-  }
-  if (name === 'probe:picked') {
-    const input = document.getElementById(data.id!) as HTMLInputElement
-    void (async () => {
-      const files = await describeSelection(input.files, data.id === 'probeFolder' ? 'Ordner' : 'Dateien', plog)
-      const pdf = files.find(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf')
-      if (pdf) await probePdf(pdf, plog)
-      else if (data.id === 'probePdfFile') plog('fail', 'C: keine PDF-Datei ausgewählt')
-    })()
-    return
-  }
-  if (name === 'probe:storage') return void runBusy(() => probeStorage(kv, plog))
-  if (name === 'probe:pcloud') return void runBusy(() => probePcloudApi(plog))
-  if (name === 'probe:login') {
-    const client = (document.getElementById('pcloudClient') as HTMLInputElement).value.trim()
-    void kv.set(PCLOUD_CLIENT_KEY, client).finally(() => startPcloudLogin(client, plog))
-  }
-}
-
 async function runBusy(fn: () => Promise<void>) {
   if (busy) return
   busy = true
@@ -437,166 +441,16 @@ async function runBusy(fn: () => Promise<void>) {
   try {
     await fn()
   } catch (err) {
-    plog('fail', describe(err))
+    phone.log('fail', describe(err))
   } finally {
     busy = false
     phone.setBusy(false)
   }
 }
 
-// ---- pCloud folder ----------------------------------------------------------------------------
-
-let pcLogin: PcloudLogin | null = null
-let pcCfg: SyncConfig | null = null
-let pcBusy = false
-let pcMessage = ''
-/** Folder picker: the path of folders from the root to where the user is; null = picker closed. */
-let pcBrowse: { stack: { id: number; name: string }[]; folders: FolderEntry[] } | null = null
-
-function renderPc() {
-  const when = pcCfg?.lastSync ? new Date(pcCfg.lastSync).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
-  const idle = pcLogin
-    ? `Angemeldet (${pcLogin.region}). ${pcCfg ? `Ordner: ${pcCfg.name}${when ? `, zuletzt abgeglichen ${when}` : ''}` : 'Noch kein Ordner gewählt.'}`
-    : 'Nicht angemeldet. IGOR liest nur und verändert nichts bei pCloud.'
-  phone.renderPcloud({
-    loggedIn: !!pcLogin,
-    message: pcMessage || idle,
-    folder: pcCfg?.name,
-    busy: pcBusy,
-    browser: pcBrowse
-      ? { path: pcBrowse.stack.map(s => s.name).join(' / '), folders: pcBrowse.folders, canUp: pcBrowse.stack.length > 1 }
-      : null,
-  })
-}
-
-async function pcloudStartup() {
-  pcLogin = await restoreLogin(kv, plog)
-  pcCfg = pcLogin ? await loadSyncConfig(kv) : null
-  renderPc()
-  if (pcLogin && pcCfg) {
-    await libraryReady
-    void syncNow()
-  }
-}
-
-async function syncNow() {
-  const login = pcLogin
-  const folder = pcCfg
-  if (!login || !folder || pcBusy) return
-  pcBusy = true
-  pcMessage = 'Gleiche ab …'
-  renderPc()
-  const t = performance.now()
-  try {
-    const report = await runSync(folder, {
-      listTree: id => listTree(login, id),
-      download: id => pcDownload(login, id),
-      read: readBuffer,
-      library,
-      progress: m => ((pcMessage = m), renderPc()),
-    })
-    pcCfg = { ...folder, lastSync: Date.now() }
-    await saveSyncConfig(kv, pcCfg)
-    pcMessage = ''
-    plog(report.failed.length ? 'fail' : 'ok', `pCloud ${folder.name}: ${describeReport(report)} (${ms(performance.now() - t)}, Referer: ${refererInUse()})`)
-    for (const f of report.failed.slice(0, 8)) plog('fail', `   ${f}`)
-    if (report.failed.length > 8) plog('fail', `   … und ${report.failed.length - 8} weitere`)
-    for (const s of report.skipped) plog('info', `   übersprungen: ${s}`)
-  } catch (err) {
-    pcMessage = `Abgleich fehlgeschlagen: ${describe(err)}`
-    plog('fail', `pCloud: ${describe(err)}`)
-    if ((err as { code?: number }).code === 1000 || (err as { code?: number }).code === 2000) {
-      pcLogin = null
-      await forgetLogin(kv)
-    }
-  } finally {
-    pcBusy = false
-    renderPc()
-  }
-}
-
-async function openBrowser(stack: { id: number; name: string }[]) {
-  if (!pcLogin) return
-  pcBusy = true
-  renderPc()
-  try {
-    pcBrowse = { stack, folders: await listSubfolders(pcLogin, stack[stack.length - 1]!.id) }
-  } catch (err) {
-    pcBrowse = null
-    pcMessage = describe(err)
-    plog('fail', `pCloud: ${describe(err)}`)
-  } finally {
-    pcBusy = false
-    renderPc()
-  }
-}
-
-/** Downloads one file of the chosen folder by every route and logs what each one answered. */
-async function testDownload() {
-  const login = pcLogin
-  const folder = pcCfg
-  if (!login || !folder || pcBusy) return
-  pcBusy = true
-  pcMessage = 'Teste Download …'
-  renderPc()
-  try {
-    const { files } = flatten(await listTree(login, folder.folderid), folder.name)
-    const file = files.find(f => f.size < 200_000) ?? files[0]
-    if (!file) throw new Error('Keine lesbare Datei im Ordner')
-    plog('info', `pCloud-Test mit ${file.path} (${file.size} Bytes), Seite ${location.origin}${location.pathname}`)
-    for (const r of await probeDownload(login, file.fileid)) plog(r.ok ? 'ok' : 'fail', `pCloud-Test: ${r.line}`)
-  } catch (err) {
-    plog('fail', `pCloud-Test: ${describe(err)}`)
-  } finally {
-    pcBusy = false
-    pcMessage = 'Test fertig, Ergebnis im Protokoll (Diagnose).'
-    renderPc()
-  }
-}
-
-function pcloudAction(name: string, d: Record<string, string>): boolean {
-  if (!name.startsWith('pc:')) return false
-  const client = (document.getElementById('pcloudClient') as HTMLInputElement | null)?.value.trim() || DEFAULT_CLIENT_ID
-  switch (name) {
-    case 'pc:login': startPcloudLogin(client, plog); break
-    case 'pc:logout':
-      pcLogin = null
-      pcCfg = null
-      pcMessage = 'Abgemeldet. Bereits geladene Unterlagen bleiben erhalten.'
-      void forgetLogin(kv)
-      renderPc()
-      break
-    case 'pc:pick': void openBrowser([{ id: 0, name: 'pCloud' }]); break
-    case 'pc:open': void openBrowser([...(pcBrowse?.stack ?? []), { id: Number(d.fid), name: d.fname! }]); break
-    case 'pc:up': void openBrowser((pcBrowse?.stack ?? []).slice(0, -1)); break
-    case 'pc:cancel':
-      pcBrowse = null
-      renderPc()
-      break
-    case 'pc:choose': {
-      const here = pcBrowse?.stack[pcBrowse.stack.length - 1]
-      pcBrowse = null
-      if (here) {
-        pcCfg = { folderid: here.id, name: here.name }
-        pcMessage = ''
-        void saveSyncConfig(kv, pcCfg).then(syncNow)
-      }
-      renderPc()
-      break
-    }
-    case 'pc:sync': void syncNow(); break
-    case 'pc:test': void testDownload(); break
-  }
-  return true
-}
-
-async function probeStartup() {
-  try {
-    ;(document.getElementById('pcloudClient') as HTMLInputElement).value = await kv.get(PCLOUD_CLIENT_KEY)
-    await checkMarkers(kv, plog)
-  } catch (err) {
-    plog('fail', `Machbarkeit beim Start: ${describe(err)}`)
-  }
+/** Keys of retired features (pCloud login, feasibility probes): remove what they left in the phone's storage. */
+async function forgetOldKeys() {
+  for (const k of ['igor.pcloud', 'igor.pcloud.sync', 'igor.pcloud.client', 'igor.probe', 'igor.probe.marker']) await kv.set(k, '').catch(() => false)
 }
 
 async function onAction(name: string, data: Record<string, string>) {
@@ -611,7 +465,6 @@ async function onAction(name: string, data: Record<string, string>) {
   }
   if (memoryAction(name, data)) return
   if (libraryAction(name, data)) return
-  if (pcloudAction(name, data)) return
   if (name === 'ask') {
     const q = data.question?.trim()
     if (!q) return
@@ -622,7 +475,6 @@ async function onAction(name: string, data: Record<string, string>) {
   if (name === 'newChat') return assistant.newChat()
   if (name === 'persona:reset') return phone.resetPersona()
   if (name === 'mic') return voiceTest()
-  if (name.startsWith('probe:')) return probeAction(name, data)
 
   if (busy) return
   busy = true

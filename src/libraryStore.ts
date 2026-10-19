@@ -20,6 +20,8 @@ export class LibraryStore {
   private index: LibraryIndex | null = null
   private listeners = new Set<() => void>()
   private writes: Promise<unknown> = Promise.resolve()
+  /** Batch adds leave the index to commit(); until then the new documents exist only in memory. */
+  private dirty = false
 
   constructor(
     private readonly kv: Kv,
@@ -75,9 +77,8 @@ export class LibraryStore {
   }
 
   /** Adds a document; the same path replaces the older version and keeps its topic. */
-  async add(raw: RawDoc, remote?: DocMeta['remote']): Promise<AddResult> {
+  async add(raw: RawDoc, opts: { batch?: boolean } = {}): Promise<AddResult> {
     const doc = buildDoc(raw, newId())
-    if (remote) doc.remote = remote
     if (!doc.chunks.length) return { ok: false, reason: `${raw.name}: kein Text gefunden${raw.kind === 'pdf' ? ' (vermutlich ein eingescanntes PDF)' : ''}` }
     if (doc.chars > MAX_DOC_CHARS) return { ok: false, reason: `${raw.name}: zu groß (${Math.round(doc.chars / 1000)}k Zeichen, erlaubt ${MAX_DOC_CHARS / 1000}k)` }
     const old = [...this.docs.values()].find(d => d.path === doc.path)
@@ -89,11 +90,38 @@ export class LibraryStore {
       doc.id = old.id
     }
     const next = new Map(this.docs).set(doc.id, doc)
-    const ok = await this.persist(doc.id, JSON.stringify(doc.chunks), next)
+    // In a batch only the document is written now; one index write at the end replaces hundreds.
+    const ok = opts.batch
+      ? await this.queue(() => this.kv.set(docKey(doc.id), JSON.stringify(doc.chunks)))
+      : await this.persist(doc.id, JSON.stringify(doc.chunks), next)
     if (!ok) return { ok: false, reason: `${raw.name}: Speicher der Even-App hat das Schreiben abgelehnt` }
     this.docs = next
-    this.changed()
+    if (opts.batch) {
+      this.dirty = true
+      this.index = null
+    } else this.changed()
     return { ok: true, doc: metaOf(doc), replaced: !!old }
+  }
+
+  /** Ends a batch of adds: writes the index once and tells the listeners. */
+  async commit(): Promise<boolean> {
+    if (!this.dirty) return true
+    const ok = await this.writeIndex(this.docs)
+    if (ok) this.dirty = false
+    this.changed()
+    return ok
+  }
+
+  /** Removes every document. */
+  async clear(): Promise<boolean> {
+    const ids = [...this.docs.keys()]
+    const ok = await this.writeIndex(new Map())
+    if (!ok) return false
+    this.docs = new Map()
+    this.dirty = false
+    this.changed()
+    for (const id of ids) void this.queue(() => this.kv.set(docKey(id), '')) // free the space
+    return true
   }
 
   async remove(id: string): Promise<boolean> {

@@ -1,7 +1,7 @@
 {
   "name": "igor",
   "private": true,
-  "version": "0.5.4",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -16,6 +16,7 @@
   "dependencies": {
     "@evenrealities/even_hub_sdk": "0.0.16",
     "@evenrealities/pretext": "^0.1.4",
+    "fflate": "0.8.3",
     "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {

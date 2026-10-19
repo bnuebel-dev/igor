@@ -8,15 +8,6 @@ import type { Settings } from './storage.ts'
 export type Screen = { kind: 'text'; text: string } | { kind: 'list'; title: string; items: string[] }
 type Level = 'info' | 'ok' | 'fail'
 type Picker = 'chatModel' | 'sttModel'
-export type PcloudView = {
-  loggedIn: boolean
-  /** One line above the buttons: status, progress or the last result. */
-  message: string
-  folder?: string
-  busy?: boolean
-  /** Set while the folder picker is open. */
-  browser?: { path: string; folders: { id: number; name: string }[]; canUp: boolean } | null
-}
 export type Tab = 'start' | 'memory' | 'docs' | 'settings' | 'diag'
 
 export type Handlers = {
@@ -107,13 +98,9 @@ export function mountPhone(h: Handlers) {
       </section>
 
       <section data-panel="docs">
-        <h2 class="first">pCloud</h2>
-        <p id="pcInfo" class="info"></p>
-        <div id="pcBox"></div>
-        <h2>Einzelne Dateien</h2>
-        <button data-action="lib:add" class="primary">Dateien hinzufügen</button>
-        <input type="file" id="libFiles" multiple accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf" hidden>
-        <p class="hint">MD, TXT und PDF. Eine Datei mit gleichem Namen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
+        <button data-action="lib:add" class="primary">Dateien oder ZIP hinzufügen</button>
+        <input type="file" id="libFiles" multiple accept=".md,.markdown,.txt,.pdf,.zip,text/markdown,text/plain,application/pdf,application/zip" hidden>
+        <p class="hint">MD, TXT und PDF, auch viele auf einmal. <strong>Ganze Ordner:</strong> in der Dateien-App den Ordner (auch aus pCloud) markieren, „Komprimieren“ bzw. „ZIP erstellen“ wählen und die ZIP-Datei hier auswählen. Unterordner bleiben erhalten, versteckte Ordner wie .trash werden übersprungen. Dieselbe Datei erneut hinzufügen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
         <p id="libInfo" class="info"></p>
         <div id="libList"></div>
         <h2>Suche ausprobieren</h2>
@@ -150,20 +137,6 @@ export function mountPhone(h: Handlers) {
         <button data-action="mic">5 Sprachtest (5 s sprechen)</button>
         <button data-action="search">6 Websuche</button>
         <p class="hint">Test 5 spricht in die Brille (im Browser: ins Mikrofon) und prüft Mikrofon, Erkennung und Antwort. Test 6 fragt nach den Nachrichten des Tages und zeigt, ob das Modell gesucht hat.</p>
-        <h2>Machbarkeit Unterlagen</h2>
-        <div class="grid">
-          <button data-action="probe:files">A Dateien wählen</button>
-          <button data-action="probe:folder">A Ordner wählen</button>
-          <button data-action="probe:storage">B Speicher</button>
-          <button data-action="probe:pdf">C PDF wählen</button>
-          <button data-action="probe:pcloud">D pCloud erreichbar?</button>
-          <button data-action="probe:login">E pCloud anmelden</button>
-        </div>
-        <label>pCloud Client-ID (für E)<input id="pcloudClient" autocomplete="off" placeholder="aus pCloud „My apps“"></label>
-        <p class="hint">A: Wählen Sie ein paar MD-Dateien und ein PDF, gern aus pCloud. B dauert bis zu einer Minute. E verlässt kurz die Seite und kommt nach der pCloud-Anmeldung zurück.</p>
-        <input type="file" id="probeFiles" multiple hidden>
-        <input type="file" id="probeFolder" webkitdirectory multiple hidden>
-        <input type="file" id="probePdfFile" accept="application/pdf,.pdf" hidden>
         <h2>Protokoll</h2>
         <button data-action="copy">Protokoll kopieren</button>
         <ol id="log"></ol>
@@ -174,6 +147,7 @@ export function mountPhone(h: Handlers) {
   const lines: string[] = []
   const open = new Set<string>()
   let tab: Tab = 'start'
+  let libListOpen = false
   const showTab = (t: Tab) => {
     tab = t
     document.querySelectorAll<HTMLElement>('[data-panel]').forEach(p => (p.hidden = p.dataset.panel !== t))
@@ -185,7 +159,6 @@ export function mountPhone(h: Handlers) {
   app.addEventListener('change', e => {
     const id = (e.target as HTMLElement).id
     if (id === 'chatModel' || id === 'sttModel') syncPicker(id)
-    if (id === 'probeFiles' || id === 'probeFolder' || id === 'probePdfFile') h.action('probe:picked', { id })
     if (id === 'libFiles') h.action('lib:picked', {})
     const docSel = (e.target as HTMLElement).closest<HTMLSelectElement>('select[data-doc-topic]')
     if (docSel) h.action('lib:topic', { id: docSel.dataset.docTopic!, topic: docSel.value })
@@ -193,6 +166,7 @@ export function mountPhone(h: Handlers) {
   })
   app.addEventListener('toggle', e => {
     const d = e.target as HTMLDetailsElement
+    if (d.id === 'libDetails') libListOpen = d.open
     if (d.dataset?.topic) d.open ? open.add(d.dataset.topic) : open.delete(d.dataset.topic)
   }, true)
   app.addEventListener('click', e => {
@@ -320,9 +294,9 @@ export function mountPhone(h: Handlers) {
             .join('')
         : '<p class="hint">Noch keine Themen. Sagen Sie „Thema Garten“ oder legen Sie eines an.</p>'
     },
-    renderLibrary(docs: DocMeta[], topics: { id: string; name: string }[], summary: string) {
+    renderLibrary(docs: DocMeta[], topics: { id: string; name: string }[], summary: string, clearArmed = false) {
       $('libInfo').textContent = summary
-      $('libList').innerHTML = docs.length
+      const list = docs.length
         ? docs
             .map(d => {
               const where = d.pages ? `${d.pages} Seite${d.pages > 1 ? 'n' : ''}` : `${Math.max(1, Math.round(d.chars / 1000))}k Zeichen`
@@ -334,26 +308,13 @@ export function mountPhone(h: Handlers) {
             })
             .join('')
         : '<p class="hint">Noch keine Unterlagen.</p>'
+      // A long list would push everything else off the screen: fold it up beyond a dozen.
+      $('libList').innerHTML =
+        (docs.length > 12 ? `<details id="libDetails"${libListOpen ? ' open' : ''}><summary>Alle ${docs.length} Dokumente anzeigen</summary>${list}</details>` : list) +
+        (docs.length ? `<button data-action="lib:clear" class="danger">${clearArmed ? 'Wirklich alles löschen? Nochmal tippen' : 'Alle Unterlagen löschen'}</button>` : '')
     },
-    renderPcloud(s: PcloudView) {
-      $('pcInfo').textContent = s.message
-      const btn = (action: string, label: string, cls = '', data = '') => `<button data-action="${action}" ${data} class="${cls}"${s.busy ? ' disabled' : ''}>${esc(label)}</button>`
-      let html = ''
-      if (!s.loggedIn) html = btn('pc:login', 'Bei pCloud anmelden', 'primary')
-      else if (s.browser) {
-        const b = s.browser
-        html = `<p class="hint">Ordner wählen: <strong>${esc(b.path)}</strong></p>`
-        html += b.folders.length
-          ? b.folders.map(f => btn('pc:open', `📁 ${f.name}`, 'quiet', `data-fid="${f.id}" data-fname="${esc(f.name)}"`)).join('')
-          : '<p class="hint">Keine Unterordner.</p>'
-        html += `<div class="row">${btn('pc:choose', 'Diesen Ordner nehmen', 'primary')}${b.canUp ? btn('pc:up', 'Eine Ebene hoch', 'quiet') : btn('pc:cancel', 'Abbrechen', 'quiet')}</div>`
-        if (b.canUp) html += btn('pc:cancel', 'Abbrechen', 'quiet')
-      } else {
-        html = `<div class="row">${btn('pc:pick', s.folder ? 'Anderen Ordner wählen' : 'Ordner wählen', s.folder ? 'quiet' : 'primary')}${s.folder ? btn('pc:sync', 'Jetzt abgleichen', 'primary') : ''}</div>`
-        if (s.folder) html += btn('pc:test', 'Download testen (Diagnose)', 'quiet')
-        html += btn('pc:logout', 'Von pCloud abmelden', 'quiet')
-      }
-      $('pcBox').innerHTML = html
+    setLibraryInfo(text: string) {
+      $('libInfo').textContent = text
     },
     renderSearch(passages: { source: string; text: string }[]) {
       $('libResults').innerHTML = passages.length
@@ -394,7 +355,6 @@ function injectStyles() {
     nav button.on { background: #2e2e2e; }
     nav button:nth-child(-n+3) { grid-column: span 2; }
     nav button:nth-child(n+4) { grid-column: span 3; }
-    h2.first { margin-top: 0; }
     .doc { background: #232323; border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
     .doc strong { display: block; font-weight: 500; overflow-wrap: anywhere; }
     .doc .hint { display: block; margin: 2px 0 4px; overflow-wrap: anywhere; white-space: pre-line; }

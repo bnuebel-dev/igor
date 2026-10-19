@@ -101,4 +101,52 @@ describe('LibraryStore', () => {
     expect(again.list().map(d => d.name)).toEqual(['b.md'])
     expect(lines.some(l => l.includes('a.md'))).toBe(true)
   })
+
+  it('writes the index once for a batch and tells the listeners once', async () => {
+    const kv = memoryKv()
+    const store = new LibraryStore(kv, log)
+    let notified = 0
+    store.subscribe(() => notified++)
+    let indexWrites = 0
+    const set = kv.set.bind(kv)
+    kv.set = async (k, v) => (k === 'igor.lib.idx' && indexWrites++, set(k, v))
+
+    for (let i = 0; i < 25; i++) await store.add(md(`n${i}.md`, `Notiz ${i} zum Dach.`, `Ordner/n${i}.md`), { batch: true })
+    expect(indexWrites).toBe(0)
+    expect(notified).toBe(0)
+    expect(store.search('Dach').length).toBeGreaterThan(0) // searchable before the commit
+
+    expect(await store.commit()).toBe(true)
+    expect(indexWrites).toBe(1)
+    expect(notified).toBe(1)
+
+    const again = new LibraryStore(kv, log)
+    await again.load()
+    expect(again.list()).toHaveLength(25)
+  })
+
+  it('reports a failed commit and a failed batch write', async () => {
+    let fail = false
+    const kv = memoryKv({ failWrites: () => fail })
+    const store = new LibraryStore(kv, log)
+    await store.add(md('a.md', 'Text.'), { batch: true })
+    fail = true
+    expect(await store.commit()).toBe(false)
+    expect(await store.add(md('b.md', 'Text.'), { batch: true })).toMatchObject({ ok: false })
+  })
+
+  it('clears everything and frees the entries', async () => {
+    const kv = memoryKv()
+    const store = new LibraryStore(kv, log)
+    await store.add(md('a.md', 'Text zum Dach.'))
+    await store.add(md('b.md', 'Text zum Keller.'))
+    expect(await store.clear()).toBe(true)
+    expect(store.list()).toEqual([])
+    expect(store.search('Dach')).toEqual([])
+    await new Promise(res => setTimeout(res, 0))
+    expect([...kv.data.entries()].filter(([k, v]) => k.startsWith('igor.lib.d.') && v)).toEqual([])
+    const again = new LibraryStore(kv, log)
+    await again.load()
+    expect(again.list()).toEqual([])
+  })
 })
