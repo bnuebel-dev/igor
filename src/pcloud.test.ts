@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { download, PcloudError, readLoginRedirect, type PcloudLogin } from './pcloud.ts'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { download, PcloudError, probeDownload, readLoginRedirect, refererInUse, resetRefererChoice, type PcloudLogin } from './pcloud.ts'
 
 const login: PcloudLogin = { token: 'tok', host: 'https://eapi.pcloud.com', region: 'EU', at: 'x' }
 const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json; charset=utf-8' } })
@@ -20,6 +20,10 @@ function stub(handlers: Record<string, () => Response>) {
   return seen
 }
 
+beforeEach(() => {
+  vi.stubGlobal('location', { origin: 'https://bnuebel-dev.github.io', pathname: '/igor/' })
+  resetRefererChoice()
+})
 afterEach(() => vi.unstubAllGlobals())
 
 describe('download', () => {
@@ -37,7 +41,7 @@ describe('download', () => {
   it('falls back to file_open / file_read in chunks when the link route is refused, and closes the file', async () => {
     const parts = ['Hallo ', 'Welt']
     const seen = stub({
-      getfilelink: () => json({ result: 7010, error: 'Invalid link referer.' }),
+      getfilelink: () => json({ result: 7010, error: 'Invalid link referer.' }), // every variant is refused
       file_open: () => json({ result: 0, fd: 7 }),
       file_size: () => json({ result: 0, size: 10 }),
       file_read: () => bytes(parts.shift()!),
@@ -85,6 +89,43 @@ describe('download', () => {
     expect(err.message).toContain('Ersatzweg')
     expect(err.message).toContain('2003')
     expect(seen.at(-1)).toBe('file_close?fd=3')
+  })
+})
+
+describe('Referer variants', () => {
+  const link = () => json({ result: 0, hosts: ['c1.pcloud.com'], path: '/dl/42' })
+
+  /** A pCloud that accepts only requests sent with the page's full address as Referer. */
+  function strictPcloud() {
+    const used: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (input: URL | string, init?: RequestInit) => {
+      const url = new URL(String(input))
+      const ok = init?.referrer === 'https://bnuebel-dev.github.io/igor/' && init?.referrerPolicy === 'unsafe-url'
+      used.push(`${url.pathname.slice(1).split('/')[0]}:${init?.referrerPolicy ?? 'default'}`)
+      if (url.pathname === '/getfilelink') return ok ? link() : json({ result: 7010, error: 'Invalid link referer.' })
+      return bytes('Inhalt')
+    }))
+    return used
+  }
+
+  it('moves on to the next variant when pCloud answers 7010, and remembers the one that worked', async () => {
+    const used = strictPcloud()
+    expect(new TextDecoder().decode(await download(login, 42))).toBe('Inhalt')
+    expect(used).toEqual(['getfilelink:no-referrer', 'getfilelink:unsafe-url', 'dl:unsafe-url'])
+    expect(refererInUse()).toBe('volle Adresse')
+
+    used.length = 0
+    await download(login, 43) // goes straight to the variant that worked
+    expect(used).toEqual(['getfilelink:unsafe-url', 'dl:unsafe-url'])
+  })
+
+  it('probeDownload reports every route once, with the reason for each refusal', async () => {
+    strictPcloud()
+    const lines = await probeDownload(login, 42)
+    expect(lines.map(l => l.ok)).toEqual([false, true, false, false]) // the file_read route is not served by this fake
+    expect(lines[0]!.line).toContain('Link, ohne Referer')
+    expect(lines[0]!.line).toContain('7010')
+    expect(lines[1]!.line).toContain('Link, volle Adresse')
   })
 })
 

@@ -19,16 +19,16 @@ import { LibraryStore } from './libraryStore.ts'
 import { MAX_LIBRARY_CHARS } from './library.ts'
 import { checkMarkers, describeSelection, probePcloudApi, probePdf, probeStorage } from './probe.ts'
 import {
-  DEFAULT_CLIENT_ID, download as pcDownload, forgetLogin, listSubfolders, listTree, loadSyncConfig, restoreLogin, saveSyncConfig, startPcloudLogin,
+  DEFAULT_CLIENT_ID, download as pcDownload, probeDownload, refererInUse, forgetLogin, listSubfolders, listTree, loadSyncConfig, restoreLogin, saveSyncConfig, startPcloudLogin,
   type FolderEntry, type PcloudLogin, type SyncConfig,
 } from './pcloud.ts'
-import { describeReport, runSync } from './pcloudSync.ts'
+import { describeReport, flatten, runSync } from './pcloudSync.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.5.3'
+const VERSION = '0.5.4'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -498,7 +498,7 @@ async function syncNow() {
     pcCfg = { ...folder, lastSync: Date.now() }
     await saveSyncConfig(kv, pcCfg)
     pcMessage = ''
-    plog(report.failed.length ? 'fail' : 'ok', `pCloud ${folder.name}: ${describeReport(report)} (${ms(performance.now() - t)})`)
+    plog(report.failed.length ? 'fail' : 'ok', `pCloud ${folder.name}: ${describeReport(report)} (${ms(performance.now() - t)}, Referer: ${refererInUse()})`)
     for (const f of report.failed.slice(0, 8)) plog('fail', `   ${f}`)
     if (report.failed.length > 8) plog('fail', `   … und ${report.failed.length - 8} weitere`)
     for (const s of report.skipped) plog('info', `   übersprungen: ${s}`)
@@ -527,6 +527,29 @@ async function openBrowser(stack: { id: number; name: string }[]) {
     plog('fail', `pCloud: ${describe(err)}`)
   } finally {
     pcBusy = false
+    renderPc()
+  }
+}
+
+/** Downloads one file of the chosen folder by every route and logs what each one answered. */
+async function testDownload() {
+  const login = pcLogin
+  const folder = pcCfg
+  if (!login || !folder || pcBusy) return
+  pcBusy = true
+  pcMessage = 'Teste Download …'
+  renderPc()
+  try {
+    const { files } = flatten(await listTree(login, folder.folderid), folder.name)
+    const file = files.find(f => f.size < 200_000) ?? files[0]
+    if (!file) throw new Error('Keine lesbare Datei im Ordner')
+    plog('info', `pCloud-Test mit ${file.path} (${file.size} Bytes), Seite ${location.origin}${location.pathname}`)
+    for (const r of await probeDownload(login, file.fileid)) plog(r.ok ? 'ok' : 'fail', `pCloud-Test: ${r.line}`)
+  } catch (err) {
+    plog('fail', `pCloud-Test: ${describe(err)}`)
+  } finally {
+    pcBusy = false
+    pcMessage = 'Test fertig, Ergebnis im Protokoll (Diagnose).'
     renderPc()
   }
 }
@@ -562,6 +585,7 @@ function pcloudAction(name: string, d: Record<string, string>): boolean {
       break
     }
     case 'pc:sync': void syncNow(); break
+    case 'pc:test': void testDownload(); break
   }
   return true
 }

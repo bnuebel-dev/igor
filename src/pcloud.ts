@@ -27,10 +27,25 @@ export class PcloudError extends Error {
   }
 }
 
-/** pCloud rejects calls whose Referer is a foreign page (error 7010); without a Referer they pass. */
-const NO_REFERRER: RequestInit = { referrerPolicy: 'no-referrer' }
-
 const redirectUri = () => `${location.origin}${location.pathname}`
+
+/**
+ * pCloud answers some calls with error 7010 "Invalid link referer" depending on the Referer
+ * the browser sends. Which Referer it accepts is not documented, so three are tried in turn
+ * and the one that worked is remembered for the rest of the session.
+ */
+export const REFERER_VARIANTS: { name: string; init: () => RequestInit }[] = [
+  { name: 'ohne Referer', init: () => ({ referrerPolicy: 'no-referrer' }) },
+  { name: 'volle Adresse', init: () => ({ referrer: redirectUri(), referrerPolicy: 'unsafe-url' }) },
+  { name: 'Standard', init: () => ({}) },
+]
+let variantInUse = 0
+const currentInit = () => REFERER_VARIANTS[variantInUse]!.init()
+/** Forgets the remembered variant (tests). */
+export const resetRefererChoice = () => {
+  variantInUse = 0
+}
+export const refererInUse = () => REFERER_VARIANTS[variantInUse]!.name
 
 // ---- Login ------------------------------------------------------------------------------------
 
@@ -109,13 +124,18 @@ function describeCode(code: number, text: string): string {
   }
 }
 
-export async function api(login: PcloudLogin, method: string, params: Record<string, string | number> = {}): Promise<any> {
+export async function api(
+  login: PcloudLogin,
+  method: string,
+  params: Record<string, string | number> = {},
+  init: RequestInit = currentInit(),
+): Promise<any> {
   const url = new URL(`${login.host}/${method}`)
   url.searchParams.set('access_token', login.token)
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v))
   let res: Response
   try {
-    res = await fetch(url, NO_REFERRER)
+    res = await fetch(url, init)
   } catch (err) {
     throw new PcloudError(`pCloud nicht erreichbar (${(err as Error).message})`, null)
   }
@@ -166,7 +186,7 @@ async function readViaApi(login: PcloudLogin, fileid: number): Promise<ArrayBuff
       url.searchParams.set('count', String(READ_CHUNK))
       let res: Response
       try {
-        res = await fetch(url, NO_REFERRER)
+        res = await fetch(url, currentInit())
       } catch (err) {
         throw new PcloudError(`pCloud nicht erreichbar (${(err as Error).message})`, null)
       }
@@ -192,12 +212,12 @@ async function readViaApi(login: PcloudLogin, fileid: number): Promise<ArrayBuff
   }
 }
 
-/** The download link route. pCloud answers it only for requests without a foreign Referer. */
-async function readViaLink(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
-  const link = await api(login, 'getfilelink', { fileid })
+/** The download link route; `init` decides which Referer the browser sends. */
+async function readViaLink(login: PcloudLogin, fileid: number, init: RequestInit): Promise<ArrayBuffer> {
+  const link = await api(login, 'getfilelink', { fileid }, init)
   let res: Response
   try {
-    res = await fetch(`https://${link.hosts[0]}${link.path}`, NO_REFERRER)
+    res = await fetch(`https://${link.hosts[0]}${link.path}`, init)
   } catch (err) {
     throw new PcloudError(`Download blockiert (${(err as Error).message})`, null)
   }
@@ -205,17 +225,50 @@ async function readViaLink(login: PcloudLogin, fileid: number): Promise<ArrayBuf
   return res.arrayBuffer()
 }
 
-/** Download link first (the documented way); the file_read calls serve as fallback. */
+/** Download link first, with each Referer variant in turn; the file_read calls serve as last resort. */
 export async function download(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
-  try {
-    return await readViaLink(login, fileid)
-  } catch (err) {
-    // A missing file or an expired login will not get better with another route.
-    if (!(err instanceof PcloudError) || [1000, 2000, 2009].includes(err.code ?? 0)) throw err
+  let firstError: PcloudError | null = null
+  for (let n = 0; n < REFERER_VARIANTS.length; n++) {
+    const index = (variantInUse + n) % REFERER_VARIANTS.length
     try {
-      return await readViaApi(login, fileid)
-    } catch (second) {
-      throw new PcloudError(`${err.message} (Ersatzweg: ${(second as Error).message})`, err.code)
+      const data = await readViaLink(login, fileid, REFERER_VARIANTS[index]!.init())
+      variantInUse = index
+      return data
+    } catch (err) {
+      if (!(err instanceof PcloudError)) throw err
+      firstError ??= err
+      // Only a refused Referer is worth another variant; a missing file or an expired login is not.
+      if (err.code !== 7010) {
+        if ([1000, 2000, 2009].includes(err.code ?? 0)) throw err
+        break
+      }
     }
   }
+  try {
+    return await readViaApi(login, fileid)
+  } catch (second) {
+    throw new PcloudError(`${firstError?.message ?? 'Download fehlgeschlagen'} (Ersatzweg: ${(second as Error).message})`, firstError?.code ?? null)
+  }
+}
+
+/** For the diagnostics: every route and Referer variant once on one file, one result line each. */
+export async function probeDownload(login: PcloudLogin, fileid: number): Promise<{ ok: boolean; line: string }[]> {
+  const out: { ok: boolean; line: string }[] = []
+  for (const v of REFERER_VARIANTS) {
+    const t = performance.now()
+    try {
+      const data = await readViaLink(login, fileid, v.init())
+      out.push({ ok: true, line: `Link, ${v.name}: ${data.byteLength} Bytes in ${Math.round(performance.now() - t)} ms` })
+    } catch (err) {
+      out.push({ ok: false, line: `Link, ${v.name}: ${(err as Error).message}` })
+    }
+  }
+  const t = performance.now()
+  try {
+    const data = await readViaApi(login, fileid)
+    out.push({ ok: true, line: `file_read: ${data.byteLength} Bytes in ${Math.round(performance.now() - t)} ms` })
+  } catch (err) {
+    out.push({ ok: false, line: `file_read: ${(err as Error).message}` })
+  }
+  return out
 }

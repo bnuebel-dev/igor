@@ -350,6 +350,7 @@ export function mountPhone(h: Handlers) {
         if (b.canUp) html += btn('pc:cancel', 'Abbrechen', 'quiet')
       } else {
         html = `<div class="row">${btn('pc:pick', s.folder ? 'Anderen Ordner wählen' : 'Ordner wählen', s.folder ? 'quiet' : 'primary')}${s.folder ? btn('pc:sync', 'Jetzt abgleichen', 'primary') : ''}</div>`
+        if (s.folder) html += btn('pc:test', 'Download testen (Diagnose)', 'quiet')
         html += btn('pc:logout', 'Von pCloud abmelden', 'quiet')
       }
       $('pcBox').innerHTML = html
