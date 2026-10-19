@@ -1,0 +1,10 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IGOR</title>
+<!-- Entry for the QR code. The Even app caches the app page for up to ten minutes; this tiny page never
+     changes and forwards to the app with a unique address, so every scan loads the current version. -->
+<body style="background:#111;color:#fff;font:16px system-ui;padding:24px">
+<p>IGOR startet …</p>
+<noscript><p><a href="./" style="color:#fef991">Weiter zu IGOR</a></p></noscript>
+<script>location.replace('./?t=' + Date.now())</script>

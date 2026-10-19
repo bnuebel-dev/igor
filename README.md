@@ -2,7 +2,7 @@
 
 **I**ntelligenter **G**ehilfe **O**hne **R**uhepause: ein KI-Assistent für die Datenbrille Even Realities G2. Man spricht, IGOR antwortet auf der Brille und nennt einen dabei immer „Boss“. Die Modelle kommen von [OpenRouter](https://openrouter.ai), man bringt seinen eigenen Schlüssel mit.
 
-Stand: **Version 0.6.1**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
+Stand: **Version 0.6.2**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
 
 ## Bedienung an der Brille
 
@@ -53,7 +53,7 @@ Die Handy-Seite hat eine „Brillen-Anzeige“ mit Tasten für Tippen, Wischen u
 
 1. Am Rechner unter https://hub.evenrealities.com/login mit dem Konto der Even-App anmelden (schaltet den Entwicklerbereich frei), die Even-App neu starten.
 2. In der Even-App: **Even Hub** → Symbol oben rechts → **Entwickler-Hub** → **Prototyp-Modus** → **QR-Code scannen**.
-3. Diesen QR-Code scannen. Er enthält `https://bnuebel-dev.github.io/igor/`.
+3. Diesen QR-Code scannen. Er enthält `https://bnuebel-dev.github.io/igor/go.html`: eine winzige Weiterleitung, die die App immer frisch lädt (die Even-App hält die Seite sonst bis zu zehn Minuten im Zwischenspeicher).
 
    ![QR-Code](docs/qr.png)
 

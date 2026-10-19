@@ -22,7 +22,7 @@ import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, sa
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.6.1'
+const VERSION = '0.6.2'
 let assistant: Assistant
 
 const phone = mountPhone({
