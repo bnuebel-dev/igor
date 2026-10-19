@@ -24,11 +24,45 @@ export async function pdfPages(data: ArrayBuffer): Promise<string[]> {
   }
 }
 
+const XML_ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" }
+const decodeXml = (s: string) =>
+  s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (_, e: string) =>
+    e[0] === '#' ? String.fromCodePoint(e[1]!.toLowerCase() === 'x' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10)) : XML_ENTITIES[e.toLowerCase()]!,
+  )
+
+/** Plain text of a Word document: one line per paragraph, headings as Markdown "#" lines. Tables become tab-separated rows. */
+export function wordXmlToText(xml: string): string {
+  const lines: string[] = []
+  for (const para of xml.split(/<\/w:p>/)) {
+    const style = /<w:pStyle w:val="([^"]*)"/.exec(para)?.[1] ?? ''
+    const level = /^(?:Heading|berschrift|Titel|Title)(\d?)/i.exec(style)
+    let text = ''
+    for (const m of para.matchAll(/<w:t(?:\s[^>]*)?>([^<]*)<\/w:t>|<w:tab\/>|<w:br\/>|<\/w:tc>/g)) {
+      text += m[1] !== undefined ? decodeXml(m[1]) : m[0] === '</w:tc>' ? '\t' : m[0] === '<w:tab/>' ? '\t' : '\n'
+    }
+    text = text.replace(/\t+$/, '').trim()
+    if (!text) continue
+    lines.push(level ? `${'#'.repeat(Math.min(6, Number(level[1]) || 1))} ${text}` : text)
+  }
+  return lines.join('\n\n')
+}
+
+export async function docxToText(data: ArrayBuffer): Promise<string> {
+  const { unzip } = await import('fflate')
+  const files = await new Promise<Record<string, Uint8Array>>((resolve, reject) =>
+    unzip(new Uint8Array(data), { filter: f => f.name === 'word/document.xml' }, (err, out) => (err ? reject(err) : resolve(out))),
+  )
+  const xml = files['word/document.xml']
+  if (!xml) throw new Error('keine Word-Datei (word/document.xml fehlt)')
+  return wordXmlToText(new TextDecoder('utf-8').decode(xml))
+}
+
 /** Turns file content into a document the library can take; throws a message the user can read. */
 export async function readBuffer(name: string, path: string, data: ArrayBuffer): Promise<RawDoc> {
   const kind = kindOf(name)
-  if (!kind) throw new Error(`${name}: nur MD, TXT und PDF werden gelesen`)
+  if (!kind) throw new Error('nur MD, TXT, PDF und DOCX werden gelesen')
   if (kind === 'pdf') return { kind, name, path, pages: await pdfPages(data) }
+  if (kind === 'docx') return { kind, name, path, text: await docxToText(data) }
   return { kind, name, path, text: new TextDecoder('utf-8').decode(data) }
 }
 
@@ -47,7 +81,8 @@ export type ZipContents = { entries: ZipEntry[]; skipped: string[] }
 
 export const isZip = (name: string) => /\.zip$/i.test(name)
 
-const isHiddenPath = (path: string) => path.split('/').some(seg => seg.startsWith('.') || seg === '__MACOSX')
+// Hidden folders, macOS resource forks and the lock files Word leaves next to open documents (~$name.docx).
+const isHiddenPath = (path: string) => path.split('/').some(seg => seg.startsWith('.') || seg.startsWith('~$') || seg === '__MACOSX')
 
 /** Readable files of a ZIP with their folder path. Hidden folders (.trash, .obsidian), other file types and huge entries are left out. */
 export async function readZipBuffer(data: ArrayBuffer): Promise<ZipContents> {

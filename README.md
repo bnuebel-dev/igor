@@ -2,7 +2,7 @@
 
 **I**ntelligenter **G**ehilfe **O**hne **R**uhepause: ein KI-Assistent für die Datenbrille Even Realities G2. Man spricht, IGOR antwortet auf der Brille und nennt einen dabei immer „Boss“. Die Modelle kommen von [OpenRouter](https://openrouter.ai), man bringt seinen eigenen Schlüssel mit.
 
-Stand: **Version 0.6.0**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
+Stand: **Version 0.6.1**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
 
 ## Bedienung an der Brille
 
@@ -31,7 +31,7 @@ Menü: Neuer Chat, Thema wählen, Modell wählen (die zehn Favoriten), Notizen a
 
 ## Unterlagen
 
-Auf der Handy-Seite unter **Unterlagen** fügen Sie Dateien hinzu (MD, TXT, PDF, auch aus pCloud oder anderen Cloud-Ordnern über die Android-Dateiauswahl). **Ganze Ordner** gehen als ZIP: In der Dateien-App den Ordner komprimieren und die ZIP-Datei auswählen; Unterordner bleiben erhalten, versteckte Ordner (.trash, .obsidian) werden übersprungen. Ein direkter Abgleich mit pCloud ist nicht möglich: pCloud verweigert Browser-Programmen den Download von Dateien (Fehler 7010). IGOR zerlegt sie in Abschnitte (Markdown nach Überschriften, PDF nach Seiten), merkt sich Titel und Tags aus dem Kopf einer Markdown-Datei und sucht bei jeder Frage die passenden Abschnitte heraus. Nur diese Auszüge gehen mit der Frage an das Modell, mit Quellenangabe („laut Mietvertrag, Seite 4“). Steht die Antwort nicht darin, sagt IGOR das.
+Auf der Handy-Seite unter **Unterlagen** fügen Sie Dateien hinzu (MD, TXT, PDF und Word-DOCX, auch aus pCloud oder anderen Cloud-Ordnern über die Android-Dateiauswahl). **Ganze Ordner** gehen als ZIP: In der Dateien-App den Ordner komprimieren und die ZIP-Datei auswählen; Unterordner bleiben erhalten, versteckte Ordner (.trash, .obsidian) werden übersprungen. Ein direkter Abgleich mit pCloud ist nicht möglich: pCloud verweigert Browser-Programmen den Download von Dateien (Fehler 7010). IGOR zerlegt sie in Abschnitte (Markdown nach Überschriften, PDF nach Seiten), merkt sich Titel und Tags aus dem Kopf einer Markdown-Datei und sucht bei jeder Frage die passenden Abschnitte heraus. Nur diese Auszüge gehen mit der Frage an das Modell, mit Quellenangabe („laut Mietvertrag, Seite 4“). Steht die Antwort nicht darin, sagt IGOR das.
 
 - Jede Datei lässt sich einem Thema zuordnen; Dokumente des aktuellen Themas werden bevorzugt.
 - Eine Datei mit gleichem Pfad ersetzt die ältere Fassung.

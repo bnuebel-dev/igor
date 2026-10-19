@@ -72,7 +72,7 @@ describe('chunking', () => {
     expect(kindOf('A.MD')).toBe('md')
     expect(kindOf('b.txt')).toBe('txt')
     expect(kindOf('c.PDF')).toBe('pdf')
-    expect(kindOf('d.docx')).toBeNull()
+    expect(kindOf('d.pptx')).toBeNull()
   })
 })
 

@@ -1,7 +1,7 @@
 // The user's own documents: split into passages, found again by keyword search.
 // Pure functions only; storage is in libraryStore.ts and reading files in ingest.ts.
 
-export type DocKind = 'md' | 'txt' | 'pdf'
+export type DocKind = 'md' | 'txt' | 'pdf' | 'docx'
 
 export type Chunk = {
   /** Section path for Markdown ("Hausbau > Dach"), empty otherwise. */
@@ -45,6 +45,7 @@ export const kindOf = (name: string): DocKind | null => {
   if (/\.(md|markdown)$/i.test(name)) return 'md'
   if (/\.txt$/i.test(name)) return 'txt'
   if (/\.pdf$/i.test(name)) return 'pdf'
+  if (/\.docx$/i.test(name)) return 'docx'
   return null
 }
 
@@ -144,7 +145,7 @@ export function mergeTiny(chunks: Chunk[], min = 160): Chunk[] {
 }
 
 export type RawDoc =
-  | { kind: 'md' | 'txt'; name: string; path: string; text: string }
+  | { kind: 'md' | 'txt' | 'docx'; name: string; path: string; text: string }
   | { kind: 'pdf'; name: string; path: string; pages: string[] }
 
 export function buildDoc(raw: RawDoc, id: string, now = Date.now()): Doc {
@@ -160,11 +161,12 @@ export function buildDoc(raw: RawDoc, id: string, now = Date.now()): Doc {
       chars += p.length
     })
     title = raw.name.replace(/\.pdf$/i, '')
-  } else if (raw.kind === 'md') {
+  } else if (raw.kind === 'md' || raw.kind === 'docx') {
+    // Word text arrives with "#" headings (see docxToText), so it goes through the Markdown path.
     const fm = parseFrontMatter(raw.text)
     chunks = mergeTiny(chunkMarkdown(fm.body))
     tags = fm.tags
-    title = fm.title || /^#\s+(.+)$/m.exec(fm.body)?.[1]?.trim() || raw.name.replace(/\.(md|markdown)$/i, '')
+    title = fm.title || /^#\s+(.+)$/m.exec(fm.body)?.[1]?.trim() || raw.name.replace(/\.(md|markdown|docx)$/i, '')
     chars = raw.text.length
   } else {
     chunks = splitLong(raw.text).map(text => ({ heading: '', text }))
@@ -285,7 +287,7 @@ export class LibraryIndex {
 }
 
 export function sourceLabel(meta: DocMeta, chunk: Chunk): string {
-  const name = meta.kind === 'md' ? meta.title : meta.name
+  const name = meta.kind === 'md' || meta.kind === 'docx' ? meta.title : meta.name
   // "Mietvertrag > Kündigung" in a document titled "Mietvertrag" is just "Kündigung".
   const parts = chunk.heading.split(' > ')
   if (parts[0] === name || parts[0] === meta.title) parts.shift()

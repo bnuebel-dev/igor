@@ -99,8 +99,8 @@ export function mountPhone(h: Handlers) {
 
       <section data-panel="docs">
         <button data-action="lib:add" class="primary">Dateien oder ZIP hinzufügen</button>
-        <input type="file" id="libFiles" multiple accept=".md,.markdown,.txt,.pdf,.zip,text/markdown,text/plain,application/pdf,application/zip" hidden>
-        <p class="hint">MD, TXT und PDF, auch viele auf einmal. <strong>Ganze Ordner:</strong> in der Dateien-App den Ordner (auch aus pCloud) markieren, „Komprimieren“ bzw. „ZIP erstellen“ wählen und die ZIP-Datei hier auswählen. Unterordner bleiben erhalten, versteckte Ordner wie .trash werden übersprungen. Dieselbe Datei erneut hinzufügen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
+        <input type="file" id="libFiles" multiple hidden>
+        <p class="hint">MD, TXT, PDF und DOCX (Word), auch viele auf einmal. Andere Dateitypen werden mit einer Meldung übersprungen. <strong>Ganze Ordner:</strong> in der Dateien-App den Ordner (auch aus pCloud) markieren, „Komprimieren“ bzw. „ZIP erstellen“ wählen und die ZIP-Datei hier auswählen. Unterordner bleiben erhalten, versteckte Ordner wie .trash werden übersprungen. Dieselbe Datei erneut hinzufügen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
         <p id="libInfo" class="info"></p>
         <div id="libList"></div>
         <h2>Suche ausprobieren</h2>
