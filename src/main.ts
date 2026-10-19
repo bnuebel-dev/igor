@@ -14,16 +14,21 @@ import {
 } from './openrouter.ts'
 import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
 import { germanNow } from './prompt.ts'
-import { readFile } from './ingest.ts'
+import { readBuffer, readFile } from './ingest.ts'
 import { LibraryStore } from './libraryStore.ts'
 import { MAX_LIBRARY_CHARS } from './library.ts'
-import { checkMarkers, describeSelection, finishPcloudLogin, probePcloudApi, probePdf, probeStorage, startPcloudLogin } from './probe.ts'
+import { checkMarkers, describeSelection, probePcloudApi, probePdf, probeStorage } from './probe.ts'
+import {
+  DEFAULT_CLIENT_ID, download as pcDownload, forgetLogin, listSubfolders, listTree, loadSyncConfig, restoreLogin, saveSyncConfig, startPcloudLogin,
+  type FolderEntry, type PcloudLogin, type SyncConfig,
+} from './pcloud.ts'
+import { describeReport, runSync } from './pcloudSync.ts'
 import { mountPhone } from './phone.ts'
 import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, saveSettings, type Settings } from './storage.ts'
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.4.0'
+const VERSION = '0.5.0'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -165,7 +170,7 @@ function renderLibrary() {
 }
 library.subscribe(renderLibrary)
 store.subscribe(renderLibrary)
-void library.load().then(renderLibrary, err => phone.log('fail', `Unterlagen laden: ${describe(err)}`))
+const libraryReady = library.load().then(renderLibrary, err => phone.log('fail', `Unterlagen laden: ${describe(err)}`))
 
 async function addFiles(files: File[]) {
   for (const file of files) {
@@ -262,6 +267,7 @@ assistant.start()
 updateInfo()
 void loadModelLists()
 void probeStartup()
+void pcloudStartup().catch(err => plog('fail', `pCloud: ${describe(err)}`))
 
 /** The Even app injects its WebView handler; a plain browser never gets it. */
 async function connectBridge(): Promise<EvenAppBridge | null> {
@@ -437,11 +443,131 @@ async function runBusy(fn: () => Promise<void>) {
   }
 }
 
+// ---- pCloud folder ----------------------------------------------------------------------------
+
+let pcLogin: PcloudLogin | null = null
+let pcCfg: SyncConfig | null = null
+let pcBusy = false
+let pcMessage = ''
+/** Folder picker: the path of folders from the root to where the user is; null = picker closed. */
+let pcBrowse: { stack: { id: number; name: string }[]; folders: FolderEntry[] } | null = null
+
+function renderPc() {
+  const when = pcCfg?.lastSync ? new Date(pcCfg.lastSync).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''
+  const idle = pcLogin
+    ? `Angemeldet (${pcLogin.region}). ${pcCfg ? `Ordner: ${pcCfg.name}${when ? `, zuletzt abgeglichen ${when}` : ''}` : 'Noch kein Ordner gewählt.'}`
+    : 'Nicht angemeldet. IGOR liest nur und verändert nichts bei pCloud.'
+  phone.renderPcloud({
+    loggedIn: !!pcLogin,
+    message: pcMessage || idle,
+    folder: pcCfg?.name,
+    busy: pcBusy,
+    browser: pcBrowse
+      ? { path: pcBrowse.stack.map(s => s.name).join(' / '), folders: pcBrowse.folders, canUp: pcBrowse.stack.length > 1 }
+      : null,
+  })
+}
+
+async function pcloudStartup() {
+  pcLogin = await restoreLogin(kv, plog)
+  pcCfg = pcLogin ? await loadSyncConfig(kv) : null
+  renderPc()
+  if (pcLogin && pcCfg) {
+    await libraryReady
+    void syncNow()
+  }
+}
+
+async function syncNow() {
+  const login = pcLogin
+  const folder = pcCfg
+  if (!login || !folder || pcBusy) return
+  pcBusy = true
+  pcMessage = 'Gleiche ab …'
+  renderPc()
+  const t = performance.now()
+  try {
+    const report = await runSync(folder, {
+      listTree: id => listTree(login, id),
+      download: id => pcDownload(login, id),
+      read: readBuffer,
+      library,
+      progress: m => ((pcMessage = m), renderPc()),
+    })
+    pcCfg = { ...folder, lastSync: Date.now() }
+    await saveSyncConfig(kv, pcCfg)
+    pcMessage = ''
+    plog(report.failed.length ? 'fail' : 'ok', `pCloud ${folder.name}: ${describeReport(report)} (${ms(performance.now() - t)})`)
+    for (const f of report.failed) plog('fail', `   ${f}`)
+    for (const s of report.skipped) plog('info', `   übersprungen: ${s}`)
+  } catch (err) {
+    pcMessage = `Abgleich fehlgeschlagen: ${describe(err)}`
+    plog('fail', `pCloud: ${describe(err)}`)
+    if ((err as { code?: number }).code === 1000 || (err as { code?: number }).code === 2000) {
+      pcLogin = null
+      await forgetLogin(kv)
+    }
+  } finally {
+    pcBusy = false
+    renderPc()
+  }
+}
+
+async function openBrowser(stack: { id: number; name: string }[]) {
+  if (!pcLogin) return
+  pcBusy = true
+  renderPc()
+  try {
+    pcBrowse = { stack, folders: await listSubfolders(pcLogin, stack[stack.length - 1]!.id) }
+  } catch (err) {
+    pcBrowse = null
+    pcMessage = describe(err)
+    plog('fail', `pCloud: ${describe(err)}`)
+  } finally {
+    pcBusy = false
+    renderPc()
+  }
+}
+
+function pcloudAction(name: string, d: Record<string, string>): boolean {
+  if (!name.startsWith('pc:')) return false
+  const client = (document.getElementById('pcloudClient') as HTMLInputElement | null)?.value.trim() || DEFAULT_CLIENT_ID
+  switch (name) {
+    case 'pc:login': startPcloudLogin(client, plog); break
+    case 'pc:logout':
+      pcLogin = null
+      pcCfg = null
+      pcMessage = 'Abgemeldet. Bereits geladene Unterlagen bleiben erhalten.'
+      void forgetLogin(kv)
+      renderPc()
+      break
+    case 'pc:pick': void openBrowser([{ id: 0, name: 'pCloud' }]); break
+    case 'pc:open': void openBrowser([...(pcBrowse?.stack ?? []), { id: Number(d.fid), name: d.fname! }]); break
+    case 'pc:up': void openBrowser((pcBrowse?.stack ?? []).slice(0, -1)); break
+    case 'pc:cancel':
+      pcBrowse = null
+      renderPc()
+      break
+    case 'pc:choose': {
+      const here = pcBrowse?.stack[pcBrowse.stack.length - 1]
+      pcBrowse = null
+      if (here) {
+        pcCfg = { folderid: here.id, name: here.name }
+        pcMessage = ''
+        void saveSyncConfig(kv, pcCfg).then(syncNow)
+      }
+      renderPc()
+      break
+    }
+    case 'pc:sync': void syncNow(); break
+  }
+  return true
+}
+
 async function probeStartup() {
   try {
     ;(document.getElementById('pcloudClient') as HTMLInputElement).value = await kv.get(PCLOUD_CLIENT_KEY)
     await checkMarkers(kv, plog)
-    await finishPcloudLogin(kv, plog)
   } catch (err) {
     plog('fail', `Machbarkeit beim Start: ${describe(err)}`)
   }
@@ -459,6 +585,7 @@ async function onAction(name: string, data: Record<string, string>) {
   }
   if (memoryAction(name, data)) return
   if (libraryAction(name, data)) return
+  if (pcloudAction(name, data)) return
   if (name === 'ask') {
     const q = data.question?.trim()
     if (!q) return

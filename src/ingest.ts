@@ -24,10 +24,14 @@ export async function pdfPages(data: ArrayBuffer): Promise<string[]> {
   }
 }
 
-/** Reads a picked file into a document the library can take; throws a message the user can read. */
+/** Turns file content into a document the library can take; throws a message the user can read. */
+export async function readBuffer(name: string, path: string, data: ArrayBuffer): Promise<RawDoc> {
+  const kind = kindOf(name)
+  if (!kind) throw new Error(`${name}: nur MD, TXT und PDF werden gelesen`)
+  if (kind === 'pdf') return { kind, name, path, pages: await pdfPages(data) }
+  return { kind, name, path, text: new TextDecoder('utf-8').decode(data) }
+}
+
 export async function readFile(file: File, path = file.webkitRelativePath || file.name): Promise<RawDoc> {
-  const kind = kindOf(file.name)
-  if (!kind) throw new Error(`${file.name}: nur MD, TXT und PDF werden gelesen`)
-  if (kind === 'pdf') return { kind, name: file.name, path, pages: await pdfPages(await file.arrayBuffer()) }
-  return { kind, name: file.name, path, text: await file.text() }
+  return readBuffer(file.name, path, await file.arrayBuffer())
 }

@@ -25,6 +25,8 @@ export type DocMeta = {
   chars: number
   pages?: number
   addedAt: number
+  /** Set when the document was mirrored from pCloud: file id and change marker. */
+  remote?: { fileid: number; hash: string }
 }
 
 export type Doc = DocMeta & { chunks: Chunk[] }

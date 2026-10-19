@@ -1,5 +1,6 @@
 // Feasibility probes for the document library: what the Even app's WebView allows
 // (file picker, storage size, PDF parsing, pCloud API and login). Diagnostics only.
+import { PCLOUD_HOSTS } from './pcloud.ts'
 import type { Kv } from './storage.ts'
 
 type Log = (level: 'info' | 'ok' | 'fail', msg: string) => void
@@ -166,8 +167,6 @@ export async function probePdf(file: File, log: Log): Promise<void> {
 
 // ---- D: pCloud API ----------------------------------------------------------------------------
 
-export const PCLOUD_HOSTS = { us: 'https://api.pcloud.com', eu: 'https://eapi.pcloud.com' }
-
 export async function probePcloudApi(log: Log): Promise<void> {
   for (const [region, host] of Object.entries(PCLOUD_HOSTS)) {
     const t = performance.now()
@@ -187,66 +186,5 @@ export async function probePcloudApi(log: Log): Promise<void> {
     } catch (err) {
       log('fail', `D pCloud ${region.toUpperCase()} mit Anmeldekopf: ${errText(err)}; Token müsste in die Adresse`)
     }
-  }
-}
-
-// ---- E: pCloud login --------------------------------------------------------------------------
-
-const TOKEN_KEY = 'igor.pcloud'
-
-export type PcloudLogin = { token: string; host: string; region: string; at: string }
-
-const redirectUri = () => `${location.origin}${location.pathname}`
-
-/** Leaves the page for pCloud's login; pCloud sends the browser back with the token in the hash. */
-export function startPcloudLogin(clientId: string, log: Log): void {
-  if (!clientId.trim()) {
-    log('fail', 'E pCloud: zuerst die Client-ID eintragen')
-    return
-  }
-  log('info', `E pCloud: öffne Anmeldung, Rückkehr an ${redirectUri()}`)
-  const url = new URL('https://my.pcloud.com/oauth2/authorize')
-  url.searchParams.set('client_id', clientId.trim())
-  url.searchParams.set('response_type', 'token')
-  url.searchParams.set('redirect_uri', redirectUri())
-  location.assign(url.toString())
-}
-
-/** At startup: pick up a token from the login redirect and remove it from the address bar. */
-export async function finishPcloudLogin(kv: Kv, log: Log): Promise<void> {
-  const params = new URLSearchParams(location.hash.slice(1) || location.search.slice(1))
-  const token = params.get('access_token')
-  const error = params.get('error')
-  if (!token && !error) {
-    const saved = await kv.get(TOKEN_KEY)
-    if (saved) {
-      const login = JSON.parse(saved) as PcloudLogin
-      log('info', `E pCloud: angemeldet seit ${login.at} (${login.region})`)
-    }
-    return
-  }
-  history.replaceState(null, '', redirectUri())
-  if (error) {
-    log('fail', `E pCloud-Anmeldung: ${error} ${params.get('error_description') ?? ''}`)
-    return
-  }
-  const host = params.get('hostname') ? `https://${params.get('hostname')}` : params.get('locationid') === '2' ? PCLOUD_HOSTS.eu : PCLOUD_HOSTS.us
-  const login: PcloudLogin = { token: token!, host, region: host.includes('eapi') ? 'EU' : 'US', at: new Date().toLocaleString('de-DE') }
-  await kv.set(TOKEN_KEY, JSON.stringify(login))
-  log('ok', `E pCloud-Anmeldung zurück: Token erhalten, Region ${login.region}, Felder: ${[...params.keys()].join(', ')}`)
-  await probePcloudFolder(login, log)
-}
-
-/** With a token: list the root folder to prove the round trip works. */
-async function probePcloudFolder(login: PcloudLogin, log: Log): Promise<void> {
-  const t = performance.now()
-  try {
-    const res = await fetch(`${login.host}/listfolder?folderid=0&access_token=${encodeURIComponent(login.token)}`)
-    const body = await res.json()
-    if (body.result !== 0) throw new Error(`pCloud-Fehler ${body.result}: ${body.error}`)
-    const names = (body.metadata?.contents ?? []).map((c: { name: string; isfolder: boolean }) => (c.isfolder ? `${c.name}/` : c.name))
-    log('ok', `E pCloud-Ordner gelesen in ${ms(t)}: ${names.slice(0, 12).join(', ') || '(leer)'}`)
-  } catch (err) {
-    log('fail', `E pCloud-Ordner lesen: ${errText(err)}`)
   }
 }

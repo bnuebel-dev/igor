@@ -8,6 +8,15 @@ import type { Settings } from './storage.ts'
 export type Screen = { kind: 'text'; text: string } | { kind: 'list'; title: string; items: string[] }
 type Level = 'info' | 'ok' | 'fail'
 type Picker = 'chatModel' | 'sttModel'
+export type PcloudView = {
+  loggedIn: boolean
+  /** One line above the buttons: status, progress or the last result. */
+  message: string
+  folder?: string
+  busy?: boolean
+  /** Set while the folder picker is open. */
+  browser?: { path: string; folders: { id: number; name: string }[]; canUp: boolean } | null
+}
 export type Tab = 'start' | 'memory' | 'docs' | 'settings' | 'diag'
 
 export type Handlers = {
@@ -98,6 +107,10 @@ export function mountPhone(h: Handlers) {
       </section>
 
       <section data-panel="docs">
+        <h2 class="first">pCloud</h2>
+        <p id="pcInfo" class="info"></p>
+        <div id="pcBox"></div>
+        <h2>Einzelne Dateien</h2>
         <button data-action="lib:add" class="primary">Dateien hinzufügen</button>
         <input type="file" id="libFiles" multiple accept=".md,.markdown,.txt,.pdf,text/markdown,text/plain,application/pdf" hidden>
         <p class="hint">MD, TXT und PDF. Eine Datei mit gleichem Namen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
@@ -319,6 +332,25 @@ export function mountPhone(h: Handlers) {
             .join('')
         : '<p class="hint">Noch keine Unterlagen.</p>'
     },
+    renderPcloud(s: PcloudView) {
+      $('pcInfo').textContent = s.message
+      const btn = (action: string, label: string, cls = '', data = '') => `<button data-action="${action}" ${data} class="${cls}"${s.busy ? ' disabled' : ''}>${esc(label)}</button>`
+      let html = ''
+      if (!s.loggedIn) html = btn('pc:login', 'Bei pCloud anmelden', 'primary')
+      else if (s.browser) {
+        const b = s.browser
+        html = `<p class="hint">Ordner wählen: <strong>${esc(b.path)}</strong></p>`
+        html += b.folders.length
+          ? b.folders.map(f => btn('pc:open', `📁 ${f.name}`, 'quiet', `data-fid="${f.id}" data-fname="${esc(f.name)}"`)).join('')
+          : '<p class="hint">Keine Unterordner.</p>'
+        html += `<div class="row">${btn('pc:choose', 'Diesen Ordner nehmen', 'primary')}${b.canUp ? btn('pc:up', 'Eine Ebene hoch', 'quiet') : btn('pc:cancel', 'Abbrechen', 'quiet')}</div>`
+        if (b.canUp) html += btn('pc:cancel', 'Abbrechen', 'quiet')
+      } else {
+        html = `<div class="row">${btn('pc:pick', s.folder ? 'Anderen Ordner wählen' : 'Ordner wählen', s.folder ? 'quiet' : 'primary')}${s.folder ? btn('pc:sync', 'Jetzt abgleichen', 'primary') : ''}</div>`
+        html += btn('pc:logout', 'Von pCloud abmelden', 'quiet')
+      }
+      $('pcBox').innerHTML = html
+    },
     renderSearch(passages: { source: string; text: string }[]) {
       $('libResults').innerHTML = passages.length
         ? passages.map(p => `<div class="doc"><strong>${esc(p.source)}</strong><span class="hint">${esc(p.text.length > 320 ? `${p.text.slice(0, 320)}…` : p.text)}</span></div>`).join('')
@@ -357,6 +389,7 @@ function injectStyles() {
     nav button.on { background: #2e2e2e; }
     nav button:nth-child(-n+3) { grid-column: span 2; }
     nav button:nth-child(n+4) { grid-column: span 3; }
+    h2.first { margin-top: 0; }
     .doc { background: #232323; border-radius: 12px; padding: 10px 12px; margin-top: 8px; }
     .doc strong { display: block; font-weight: 500; overflow-wrap: anywhere; }
     .doc .hint { display: block; margin: 2px 0 4px; overflow-wrap: anywhere; white-space: pre-line; }

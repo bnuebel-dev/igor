@@ -75,8 +75,9 @@ export class LibraryStore {
   }
 
   /** Adds a document; the same path replaces the older version and keeps its topic. */
-  async add(raw: RawDoc): Promise<AddResult> {
+  async add(raw: RawDoc, remote?: DocMeta['remote']): Promise<AddResult> {
     const doc = buildDoc(raw, newId())
+    if (remote) doc.remote = remote
     if (!doc.chunks.length) return { ok: false, reason: `${raw.name}: kein Text gefunden${raw.kind === 'pdf' ? ' (vermutlich ein eingescanntes PDF)' : ''}` }
     if (doc.chars > MAX_DOC_CHARS) return { ok: false, reason: `${raw.name}: zu groß (${Math.round(doc.chars / 1000)}k Zeichen, erlaubt ${MAX_DOC_CHARS / 1000}k)` }
     const old = [...this.docs.values()].find(d => d.path === doc.path)
