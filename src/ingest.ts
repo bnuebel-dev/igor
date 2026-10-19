@@ -81,6 +81,20 @@ export type ZipContents = { entries: ZipEntry[]; skipped: string[] }
 
 export const isZip = (name: string) => /\.zip$/i.test(name)
 
+/** ZIP files start with "PK" and a version marker, whatever the file is called. */
+export const hasZipHeader = (head: Uint8Array) => head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b && (head[2] === 3 || head[2] === 5) && (head[3] === 4 || head[3] === 6)
+
+/**
+ * Whether a picked file is an archive of documents. The file picker of the Even app may hide .zip files,
+ * so a ZIP renamed to .txt or .pdf (or without extension) is recognised by its content. Word files
+ * are ZIPs too and stay Word files.
+ */
+export async function isArchive(file: File): Promise<boolean> {
+  if (isZip(file.name)) return true
+  if (/\.docx$/i.test(file.name)) return false
+  return hasZipHeader(new Uint8Array(await file.slice(0, 4).arrayBuffer()))
+}
+
 // Hidden folders, macOS resource forks and the lock files Word leaves next to open documents (~$name.docx).
 const isHiddenPath = (path: string) => path.split('/').some(seg => seg.startsWith('.') || seg.startsWith('~$') || seg === '__MACOSX')
 

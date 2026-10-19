@@ -14,7 +14,7 @@ import {
 } from './openrouter.ts'
 import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
 import { germanNow } from './prompt.ts'
-import { isZip, readBuffer, readFile, readZipBuffer } from './ingest.ts'
+import { isArchive, readBuffer, readFile, readZipBuffer } from './ingest.ts'
 import { LibraryStore } from './libraryStore.ts'
 import { MAX_LIBRARY_CHARS, type RawDoc } from './library.ts'
 import { mountPhone } from './phone.ts'
@@ -187,7 +187,7 @@ async function addFiles(files: File[]) {
   }
   for (const file of files) {
     try {
-      if (isZip(file.name)) {
+      if (await isArchive(file)) {
         phone.setLibraryInfo(`Öffne ${file.name} …`)
         const zip = await readZipBuffer(await file.arrayBuffer())
         tally.skipped.push(...zip.skipped)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
-import { docxToText, isZip, readBuffer, readZipBuffer, wordXmlToText, ZIP_LIMITS } from './ingest.ts'
+import { docxToText, hasZipHeader, isArchive, isZip, readBuffer, readZipBuffer, wordXmlToText, ZIP_LIMITS } from './ingest.ts'
 import { buildDoc, kindOf } from './library.ts'
 
 const zip = (files: Record<string, string | Uint8Array>) =>
@@ -104,5 +104,31 @@ describe('Word documents', () => {
     const inner = new Uint8Array(d)
     const { entries } = await readZipBuffer(zip({ 'Ordner/a.docx': inner, 'Ordner/~$a.docx': inner }))
     expect(entries.map(e => e.path)).toEqual(['Ordner/a.docx'])
+  })
+})
+
+describe('archive detection by content', () => {
+  const file = (name: string, bytes: Uint8Array) => new File([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], name)
+  const z = zipSync({ 'a.md': strToU8('x') })
+
+  it('recognises a ZIP by its header, whatever it is called', async () => {
+    expect(hasZipHeader(z)).toBe(true)
+    expect(hasZipHeader(strToU8('Hallo Welt'))).toBe(false)
+    expect(hasZipHeader(new Uint8Array(2))).toBe(false)
+    expect(await isArchive(file('PhD.zip', z))).toBe(true)
+    expect(await isArchive(file('PhD.txt', z))).toBe(true)
+    expect(await isArchive(file('PhD.pdf', z))).toBe(true)
+    expect(await isArchive(file('PhD', z))).toBe(true)
+  })
+
+  it('leaves Word files and plain text alone', async () => {
+    expect(await isArchive(file('vertrag.docx', z))).toBe(false)
+    expect(await isArchive(file('notiz.txt', strToU8('Ganz normaler Text')))).toBe(false)
+    expect(await isArchive(file('leer.txt', new Uint8Array(0)))).toBe(false)
+  })
+
+  it('reads the entries of a renamed ZIP', async () => {
+    const { entries } = await readZipBuffer(z.buffer as ArrayBuffer)
+    expect(entries.map(e => e.path)).toEqual(['a.md'])
   })
 })
