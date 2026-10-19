@@ -61,7 +61,7 @@ export function mountPhone(h: Handlers) {
   $('app').innerHTML = `
     <main>
       <header>
-        <h1>IGOR</h1>
+        <h1>IGOR <small id="version"></small></h1>
         <div id="status" class="chip">Starte…</div>
       </header>
       <nav id="tabs">
@@ -223,6 +223,9 @@ export function mountPhone(h: Handlers) {
   for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) hold.addEventListener(ev, () => h.gesture('long-release'))
 
   return {
+    setVersion(v: string) {
+      $('version').textContent = v
+    },
     setStatus(text: string, kind: 'ok' | 'warn' | 'fail' = 'ok') {
       const el = $('status')
       el.textContent = text
@@ -382,6 +385,7 @@ function injectStyles() {
       touch-action: manipulation; -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
     main { max-width: 640px; margin: 0 auto; padding: 16px 16px 48px; box-sizing: border-box; }
     header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    h1 small { font-size: 13px; font-weight: 400; color: #8a8a8a; letter-spacing: 0; }
     h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin: 0; }
     h2 { font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; color: #8a8a8a; margin: 24px 0 8px; }
     nav { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin: 12px 0 16px; background: #1a1a1a; border-radius: 12px; padding: 4px; }

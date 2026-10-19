@@ -28,13 +28,14 @@ import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, sa
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.5.1'
+const VERSION = '0.5.2'
 let assistant: Assistant
 
 const phone = mountPhone({
   action: (name, data) => void onAction(name, data),
   gesture: (g, index) => assistant?.onGesture(g, index),
 })
+phone.setVersion(VERSION)
 phone.log('info', `IGOR ${VERSION} · ${navigator.userAgent}`)
 // Fill the model lists right away; waiting for the bridge can take a couple of seconds.
 phone.setChatChoices(resolveChoices(CHAT_SPECS, []), DEFAULT_SETTINGS.chatModel)
