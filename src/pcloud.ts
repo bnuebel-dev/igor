@@ -27,6 +27,9 @@ export class PcloudError extends Error {
   }
 }
 
+/** pCloud rejects calls whose Referer is a foreign page (error 7010); without a Referer they pass. */
+const NO_REFERRER: RequestInit = { referrerPolicy: 'no-referrer' }
+
 const redirectUri = () => `${location.origin}${location.pathname}`
 
 // ---- Login ------------------------------------------------------------------------------------
@@ -112,7 +115,7 @@ export async function api(login: PcloudLogin, method: string, params: Record<str
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v))
   let res: Response
   try {
-    res = await fetch(url)
+    res = await fetch(url, NO_REFERRER)
   } catch (err) {
     throw new PcloudError(`pCloud nicht erreichbar (${(err as Error).message})`, null)
   }
@@ -163,7 +166,7 @@ async function readViaApi(login: PcloudLogin, fileid: number): Promise<ArrayBuff
       url.searchParams.set('count', String(READ_CHUNK))
       let res: Response
       try {
-        res = await fetch(url)
+        res = await fetch(url, NO_REFERRER)
       } catch (err) {
         throw new PcloudError(`pCloud nicht erreichbar (${(err as Error).message})`, null)
       }
@@ -189,22 +192,28 @@ async function readViaApi(login: PcloudLogin, fileid: number): Promise<ArrayBuff
   }
 }
 
-/** The download link route, which pCloud allows only on its own pages; kept as a fallback. */
+/** The download link route. pCloud answers it only for requests without a foreign Referer. */
 async function readViaLink(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
   const link = await api(login, 'getfilelink', { fileid })
-  const res = await fetch(`https://${link.hosts[0]}${link.path}`)
+  let res: Response
+  try {
+    res = await fetch(`https://${link.hosts[0]}${link.path}`, NO_REFERRER)
+  } catch (err) {
+    throw new PcloudError(`Download blockiert (${(err as Error).message})`, null)
+  }
   if (!res.ok) throw new PcloudError(`Download: HTTP ${res.status}`, null)
   return res.arrayBuffer()
 }
 
+/** Download link first (the documented way); the file_read calls serve as fallback. */
 export async function download(login: PcloudLogin, fileid: number): Promise<ArrayBuffer> {
   try {
-    return await readViaApi(login, fileid)
+    return await readViaLink(login, fileid)
   } catch (err) {
     // A missing file or an expired login will not get better with another route.
     if (!(err instanceof PcloudError) || [1000, 2000, 2009].includes(err.code ?? 0)) throw err
     try {
-      return await readViaLink(login, fileid)
+      return await readViaApi(login, fileid)
     } catch (second) {
       throw new PcloudError(`${err.message} (Ersatzweg: ${(second as Error).message})`, err.code)
     }

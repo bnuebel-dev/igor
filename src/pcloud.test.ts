@@ -8,9 +8,10 @@ const bytes = (s: string) => new Response(new TextEncoder().encode(s), { headers
 /** Answers by method name; each handler may be a response or a function of the request URL. */
 function stub(handlers: Record<string, () => Response>) {
   const seen: string[] = []
-  vi.stubGlobal('fetch', vi.fn(async (input: URL | string) => {
+  vi.stubGlobal('fetch', vi.fn(async (input: URL | string, _init?: RequestInit) => {
     const url = new URL(String(input))
-    const method = url.pathname.slice(1)
+    // Download links look like /dl/42 on the file host; the handler key is the first path segment.
+    const method = url.pathname.slice(1).split('/')[0]!
     seen.push(`${method}?${[...url.searchParams].filter(([k]) => k !== 'access_token').map(([k, v]) => `${k}=${v}`).join('&')}`)
     const h = handlers[method]
     if (!h) throw new Error(`unexpected ${method}`)
@@ -22,9 +23,21 @@ function stub(handlers: Record<string, () => Response>) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('download', () => {
-  it('reads a file in chunks through file_open / file_read and closes it', async () => {
+  const link = () => json({ result: 0, hosts: ['c1.pcloud.com'], path: '/dl/42' })
+
+  it('uses the download link first and sends no Referer', async () => {
+    const seen = stub({ getfilelink: link, dl: () => bytes('Hallo Welt') })
+    const data = await download(login, 42)
+    expect(new TextDecoder().decode(data)).toBe('Hallo Welt')
+    expect(seen).toEqual(['getfilelink?fileid=42', 'dl?'])
+    const calls = (fetch as unknown as { mock: { calls: [unknown, RequestInit | undefined][] } }).mock.calls
+    for (const [, init] of calls) expect(init?.referrerPolicy).toBe('no-referrer')
+  })
+
+  it('falls back to file_open / file_read in chunks when the link route is refused, and closes the file', async () => {
     const parts = ['Hallo ', 'Welt']
     const seen = stub({
+      getfilelink: () => json({ result: 7010, error: 'Invalid link referer.' }),
       file_open: () => json({ result: 0, fd: 7 }),
       file_size: () => json({ result: 0, size: 10 }),
       file_read: () => bytes(parts.shift()!),
@@ -32,14 +45,15 @@ describe('download', () => {
     })
     const data = await download(login, 42)
     expect(new TextDecoder().decode(data)).toBe('Hallo Welt')
-    expect(seen[0]).toBe('file_open?flags=0&fileid=42')
+    expect(seen).toContain('file_open?flags=0&fileid=42')
     expect(seen.at(-1)).toBe('file_close?fd=7')
-    expect(seen.filter(s => s.startsWith('file_read'))).toHaveLength(2)
+    expect(seen.filter(x => x.startsWith('file_read'))).toHaveLength(2)
   })
 
-  it('stops at the first empty read when the size is unknown', async () => {
+  it('stops the fallback read at the first empty chunk when the size is unknown', async () => {
     const parts = ['abc', '']
     stub({
+      getfilelink: () => json({ result: 7010, error: 'x' }),
       file_open: () => json({ result: 0, fd: 1 }),
       file_size: () => json({ result: 1000, error: 'nope' }),
       file_read: () => bytes(parts.shift()!),
@@ -48,31 +62,29 @@ describe('download', () => {
     expect(new TextDecoder().decode(await download(login, 1))).toBe('abc')
   })
 
-  it('turns a JSON answer to file_read into the pCloud error and still closes the file', async () => {
+  it('does not try another route for a missing file or an expired login', async () => {
+    const a = stub({ getfilelink: () => json({ result: 2009, error: 'File not found.' }) })
+    await expect(download(login, 1)).rejects.toMatchObject({ code: 2009 })
+    expect(a).toHaveLength(1)
+    const b = stub({ getfilelink: () => json({ result: 2000, error: 'Log in required.' }) })
+    await expect(download(login, 1)).rejects.toMatchObject({ code: 2000, message: expect.stringContaining('neu bei pCloud anmelden') })
+    expect(b).toHaveLength(1)
+  })
+
+  it('reports both reasons when both routes fail, and still closes the file after a read error', async () => {
     const seen = stub({
+      getfilelink: () => json({ result: 7010, error: 'Invalid link referer.' }),
       file_open: () => json({ result: 0, fd: 3 }),
       file_size: () => json({ result: 0, size: 5 }),
-      file_read: () => json({ result: 2000, error: 'Log in required.' }),
+      file_read: () => json({ result: 2003, error: 'Access denied.' }),
       file_close: () => json({ result: 0 }),
-    })
-    await expect(download(login, 1)).rejects.toMatchObject({ code: 2000, message: expect.stringContaining('neu bei pCloud anmelden') })
-    expect(seen.at(-1)).toBe('file_close?fd=3')
-  })
-
-  it('does not try the link route for a missing file', async () => {
-    const seen = stub({ file_open: () => json({ result: 2009, error: 'File not found.' }) })
-    await expect(download(login, 1)).rejects.toMatchObject({ code: 2009 })
-    expect(seen).toHaveLength(1)
-  })
-
-  it('falls back to the link route when the API refuses file_open, and reports both reasons if that fails too', async () => {
-    stub({
-      file_open: () => json({ result: 7010, error: 'Invalid link referer.' }),
-      getfilelink: () => json({ result: 7010, error: 'Invalid link referer.' }),
     })
     const err = await download(login, 1).catch(e => e)
     expect(err).toBeInstanceOf(PcloudError)
+    expect(err.message).toContain('7010')
     expect(err.message).toContain('Ersatzweg')
+    expect(err.message).toContain('2003')
+    expect(seen.at(-1)).toBe('file_close?fd=3')
   })
 })
 

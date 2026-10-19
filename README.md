@@ -2,7 +2,7 @@
 
 **I**ntelligenter **G**ehilfe **O**hne **R**uhepause: ein KI-Assistent für die Datenbrille Even Realities G2. Man spricht, IGOR antwortet auf der Brille und nennt einen dabei immer „Boss“. Die Modelle kommen von [OpenRouter](https://openrouter.ai), man bringt seinen eigenen Schlüssel mit.
 
-Stand: **Version 0.5.2**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
+Stand: **Version 0.5.3**. IGOR hört zu, antwortet in Seiten, die auf die Brille passen, hat ein Gedächtnis mit Notizen und Themen, beantwortet Fragen zu Ihren eigenen Unterlagen und kann bei Bedarf im Internet suchen.
 
 ## Bedienung an der Brille
 
