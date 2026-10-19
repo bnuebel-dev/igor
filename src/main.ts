@@ -14,7 +14,7 @@ import {
 } from './openrouter.ts'
 import { DEFAULT_PERSONA, GREETING, SEARCH_RULES } from './persona.ts'
 import { germanNow } from './prompt.ts'
-import { isArchive, readBuffer, readFile, readZipBuffer } from './ingest.ts'
+import { collectFolder, isArchive, readBuffer, readFile, readZipBuffer, type FsEntry } from './ingest.ts'
 import { LibraryStore } from './libraryStore.ts'
 import { MAX_LIBRARY_CHARS, type RawDoc } from './library.ts'
 import { mountPhone } from './phone.ts'
@@ -22,7 +22,7 @@ import { createKv, DEFAULT_SETTINGS, debouncedSave, loadSettings, MEMORY_KEY, sa
 import { clampUtf8, sanitizeForGlasses } from './text.ts'
 import { withTimeout } from './timeout.ts'
 
-const VERSION = '0.6.2'
+const VERSION = '0.6.3'
 let assistant: Assistant
 
 const phone = mountPhone({
@@ -172,7 +172,8 @@ void library.load().then(renderLibrary, err => phone.log('fail', `Unterlagen lad
 let libResult = ''
 let libClearArmed = 0
 
-async function addFiles(files: File[]) {
+/** Files picked one by one (or in a ZIP), or found in a folder (then `path` carries the folder path). */
+async function addFiles(files: { file: File; path?: string }[]) {
   const tally = { added: 0, replaced: 0, failed: [] as string[], skipped: [] as string[] }
   const t = performance.now()
   const addOne = async (path: string, read: () => Promise<RawDoc>) => {
@@ -185,9 +186,9 @@ async function addFiles(files: File[]) {
       tally.failed.push(`${path}: ${describe(err)}`)
     }
   }
-  for (const file of files) {
+  for (const { file, path } of files) {
     try {
-      if (await isArchive(file)) {
+      if (!path && (await isArchive(file))) {
         phone.setLibraryInfo(`Öffne ${file.name} …`)
         const zip = await readZipBuffer(await file.arrayBuffer())
         tally.skipped.push(...zip.skipped)
@@ -198,8 +199,8 @@ async function addFiles(files: File[]) {
         }
         if (!zip.entries.length) tally.failed.push(`${file.name}: keine MD-, TXT- oder PDF-Dateien darin`)
       } else {
-        phone.setLibraryInfo(`Lese ${file.name} …`)
-        await addOne(file.name, () => readFile(file))
+        phone.setLibraryInfo(`Lese ${path ?? file.name} …`)
+        await addOne(path ?? file.name, () => readFile(file, path))
       }
     } catch (err) {
       tally.failed.push(`${file.name}: ${describe(err)}`)
@@ -224,7 +225,32 @@ function libraryAction(name: string, d: Record<string, string>): boolean {
     input.click() // must happen inside the tap, before any await
   } else if (name === 'lib:picked') {
     const files = [...((document.getElementById('libFiles') as HTMLInputElement).files ?? [])]
-    if (files.length) void runBusy(() => addFiles(files))
+    if (files.length) void runBusy(() => addFiles(files.map(file => ({ file }))))
+  } else if (name === 'lib:folder') {
+    // The picker has to open inside the tap, before any await.
+    const w = window as unknown as { showDirectoryPicker?: (o?: object) => Promise<FsEntry> }
+    phone.log('info', `Ordnerwahl: showDirectoryPicker ist ${typeof w.showDirectoryPicker}, sicherer Kontext: ${window.isSecureContext}`)
+    if (typeof w.showDirectoryPicker !== 'function') {
+      libResult = 'Ordnerwahl: wird in dieser Even-App nicht unterstützt'
+      renderLibrary()
+      return true
+    }
+    w.showDirectoryPicker({ mode: 'read' }).then(
+      dir =>
+        void runBusy(async () => {
+          phone.setLibraryInfo(`Ordner ${dir.name}: suche Dateien …`)
+          const found = await collectFolder(dir, (folders, count) => phone.setLibraryInfo(`Ordner ${dir.name}: ${folders} Ordner, ${count} Dateien gefunden …`))
+          phone.log('info', `Ordnerwahl: ${dir.name}: ${found.folders} Ordner, ${found.files.length} lesbare Dateien, ${found.skipped.length} übersprungen`)
+          for (const s of found.skipped.slice(0, 5)) phone.log('info', `   übersprungen: ${s}`)
+          await addFiles(found.files)
+        }),
+      err => {
+        const e = err as Error
+        phone.log(e.name === 'AbortError' ? 'info' : 'fail', `Ordnerwahl: ${e.name}: ${e.message}`)
+        libResult = e.name === 'AbortError' ? 'Ordnerwahl abgebrochen oder von der Even-App nicht zugelassen' : `Ordnerwahl: ${e.name}`
+        renderLibrary()
+      },
+    )
   } else if (name === 'lib:remove') {
     void library.remove(d.id!).then(ok => ok || phone.log('fail', 'Unterlagen: Löschen vom Speicher abgelehnt'))
   } else if (name === 'lib:clear') {

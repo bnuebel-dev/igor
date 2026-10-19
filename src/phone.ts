@@ -99,6 +99,7 @@ export function mountPhone(h: Handlers) {
 
       <section data-panel="docs">
         <button data-action="lib:add" class="primary">Dateien oder ZIP hinzufügen</button>
+        <button data-action="lib:folder" class="quiet">Ganzen Ordner wählen (Test)</button>
         <input type="file" id="libFiles" multiple hidden>
         <p class="hint">MD, TXT, PDF und DOCX (Word), auch viele auf einmal. Andere Dateitypen werden mit einer Meldung übersprungen. <strong>Ganze Ordner:</strong> in der Dateien-App den Ordner (auch aus pCloud) markieren, „Komprimieren“ bzw. „ZIP erstellen“ wählen und die ZIP-Datei hier auswählen. Unterordner bleiben erhalten, versteckte Ordner wie .trash werden übersprungen. Sieht Ihre Dateiauswahl keine ZIP-Dateien, benennen Sie die ZIP-Datei in „.txt“ um (Name lange drücken → Umbenennen): IGOR erkennt sie am Inhalt. Dieselbe Datei erneut hinzufügen ersetzt die ältere Fassung. Eingescannte PDFs ohne Text werden nicht gelesen.</p>
         <p id="libInfo" class="info"></p>

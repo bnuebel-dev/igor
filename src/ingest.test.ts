@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { strToU8, zipSync } from 'fflate'
-import { docxToText, hasZipHeader, isArchive, isZip, readBuffer, readZipBuffer, wordXmlToText, ZIP_LIMITS } from './ingest.ts'
+import { collectFolder, docxToText, hasZipHeader, isArchive, isZip, readBuffer, readZipBuffer, wordXmlToText, ZIP_LIMITS } from './ingest.ts'
 import { buildDoc, kindOf } from './library.ts'
 
 const zip = (files: Record<string, string | Uint8Array>) =>
@@ -130,5 +130,33 @@ describe('archive detection by content', () => {
   it('reads the entries of a renamed ZIP', async () => {
     const { entries } = await readZipBuffer(z.buffer as ArrayBuffer)
     expect(entries.map(e => e.path)).toEqual(['a.md'])
+  })
+})
+
+describe('collectFolder', () => {
+  const f = (name: string, size = 10): { kind: 'file'; name: string; getFile: () => Promise<File> } => ({
+    kind: 'file', name, getFile: async () => new File([new Uint8Array(size)], name),
+  })
+  const d = (name: string, ...kids: unknown[]) => ({ kind: 'directory' as const, name, values: async function* () { yield* kids as never[] } })
+
+  it('walks sub-folders and returns paths from the chosen folder, skipping hidden entries and other types', async () => {
+    const root = d('PhD', f('Command Center.md'), f('bild.png'), f('.hidden.md'), f('~$lock.docx'),
+      d('20_Concepts', f('Thesis.md'), d('Tief', f('x.pdf'))), d('.trash', f('alt.md')), d('.obsidian', f('c.md')))
+    const r = await collectFolder(root)
+    expect(r.files.map(x => x.path).sort()).toEqual(['PhD/20_Concepts/Thesis.md', 'PhD/20_Concepts/Tief/x.pdf', 'PhD/Command Center.md'])
+    expect(r.folders).toBe(3)
+    expect(r.skipped).toEqual([])
+  })
+
+  it('skips oversize files and reports progress', async () => {
+    const seen: number[] = []
+    const r = await collectFolder(d('a', f('klein.md'), f('riesig.pdf', ZIP_LIMITS.entryBytes + 1)), (_, n) => seen.push(n))
+    expect(r.files.map(x => x.path)).toEqual(['a/klein.md'])
+    expect(r.skipped).toEqual([expect.stringContaining('riesig.pdf')])
+    expect(seen.length).toBeGreaterThan(0)
+  })
+
+  it('copes with an empty folder', async () => {
+    expect(await collectFolder(d('leer'))).toMatchObject({ files: [], folders: 1 })
   })
 })

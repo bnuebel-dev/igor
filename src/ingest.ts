@@ -136,3 +136,41 @@ export async function readZipBuffer(data: ArrayBuffer): Promise<ZipContents> {
     .sort((a, b) => a.path.localeCompare(b.path, 'de'))
   return { entries, skipped }
 }
+
+// ---- Folder picker (File System Access API) ---------------------------------------------------
+
+/** The part of FileSystemHandle / FileSystemDirectoryHandle that is used here. */
+export type FsEntry = {
+  kind: 'file' | 'directory'
+  name: string
+  getFile?(): Promise<File>
+  values?(): AsyncIterable<FsEntry>
+}
+
+export type FolderContents = { files: { path: string; file: File }[]; skipped: string[]; folders: number }
+
+/** Every readable file below a folder, with its path from the folder's name; hidden entries and oversize files are left out. */
+export async function collectFolder(root: FsEntry, onProgress?: (folders: number, files: number) => void): Promise<FolderContents> {
+  const out: FolderContents = { files: [], skipped: [], folders: 0 }
+  const walk = async (dir: FsEntry, prefix: string): Promise<void> => {
+    out.folders++
+    for await (const e of dir.values?.() ?? []) {
+      if (e.name.startsWith('.') || e.name.startsWith('~$')) continue
+      const path = `${prefix}/${e.name}`
+      if (e.kind === 'directory') {
+        await walk(e, path)
+      } else if (kindOf(e.name) && e.getFile) {
+        if (out.files.length >= ZIP_LIMITS.entries) {
+          out.skipped.push(`${path} (zu viele Dateien)`)
+          continue
+        }
+        const file = await e.getFile()
+        if (file.size > ZIP_LIMITS.entryBytes) out.skipped.push(`${path} (${Math.round(file.size / 1024 / 1024)} MB, zu groß)`)
+        else out.files.push({ path, file })
+        onProgress?.(out.folders, out.files.length)
+      }
+    }
+  }
+  await walk(root, root.name)
+  return out
+}
